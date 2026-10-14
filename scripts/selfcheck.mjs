@@ -1596,7 +1596,43 @@ function sc51() {
 }
 
   sc50();
+/**
+ * SC52：装出来的技能必须**能被 DSH 识别** —— 即 SKILL.md 首行必须是 `---`（frontmatter 起点）。
+ * 实测教训：安装戳放在文件开头会破坏 frontmatter，技能**从列表里消失**，
+ * 而且本地自检/端到端全都发现不了（只有真实集成才暴露）。
+ */
+function sc52() {
+  const src = path.join(KIT_ROOT, 'skill', 'SKILL.md');
+  const body = readFileSync(src, 'utf8');
+
+  // 源文件本身必须合法
+  const srcOk = body.startsWith('---') && /\nname:\s*devflow/.test(body) && /\nwhenToUse:/.test(body);
+
+  // 模拟 setup 的安装戳逻辑，验证生成结果仍合法
+  const stamp = '<!-- 由 devflow setup 安装（2026-10-14）；kit 升级后请重跑 devflow setup --global 以刷新 -->';
+  let out = body;
+  const fmEnd = out.indexOf('\n---', 4);
+  if (fmEnd >= 0) {
+    const nl = out.indexOf('\n', fmEnd + 1);
+    out = nl >= 0 ? `${out.slice(0, nl + 1)}${stamp}\n${out.slice(nl + 1)}` : `${out}\n${stamp}\n`;
+  } else { out = `${stamp}\n${out}`; }
+  const lines = out.split('\n');
+  const installedOk = lines[0] === '---' && /^name:\s*devflow/.test(lines[1] || '')
+    && lines.some((l) => /^whenToUse:/.test(l))
+    && lines.some((l) => l.includes('devflow setup'));   // 戳确实写进去了
+
+  // 反证：若把戳放在开头，必须被判为非法（证明这条校验真的有效）
+  const bad = `${stamp}\n${body}`;
+  const badRejected = bad.split('\n')[0] !== '---';
+
+  record('SC52', '安装的技能必须能被 DSH 识别（SKILL.md 首行是 ---，戳在 frontmatter 之后）',
+    '源文件合法；安装后首行仍是 ---；戳已写入但不在首行；戳放开头会被判非法',
+    `源合法=${srcOk} 安装后合法=${installedOk} 首行=${JSON.stringify(lines[0])} 反证有效=${badRejected}`,
+    srcOk && installedOk && badRejected);
+}
+
   sc51();
+  sc52();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

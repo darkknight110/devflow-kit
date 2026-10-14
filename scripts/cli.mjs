@@ -1636,21 +1636,33 @@ function cmdSetup(flags) {
   } else {
     let linked = false;
     try {
-      const cur = existsSync(link) ? readlinkSync(link) : null;
-      if (cur === src) {
-        lines.push(`  ✓ 已安装且指向正确：${link}`);
-        linked = true;
+      // **必须装成真实目录 + 真实文件**，不用软链：
+      // 技能枚举是否跟随软链无法保证（对照：同目录下能用的 md-to-office 是真实目录）。
+      // 装软链的风险是"看起来装了、其实不被发现"，属于本产品最反对的静默失效。
+      const skillMd = path.join(src, 'SKILL.md');
+      let body = readFileSync(skillMd, 'utf8');
+      // ⚠️ 安装戳**必须放在 frontmatter 之后**：SKILL.md 的第一行必须是 `---`，
+      // 否则 DSH 解析不到 frontmatter，技能会**从列表里消失**（实测踩到，且只有真实集成能发现）。
+      const stamp = `<!-- 由 devflow setup 安装（${new Date().toISOString().slice(0, 10)}）；`
+        + `kit 升级后请重跑 devflow setup --global 以刷新 -->`;
+      const fmEnd = body.indexOf('\n---', 4);   // 跳过开头的 ---
+      if (fmEnd >= 0) {
+        const nl = body.indexOf('\n', fmEnd + 1);
+        body = nl >= 0 ? `${body.slice(0, nl + 1)}${stamp}\n${body.slice(nl + 1)}` : `${body}\n${stamp}\n`;
       } else {
-        rmSync(link, { force: true });
-        symlinkSync(src, link);
-        lines.push(`  ✓ 已安装：${link} → ${src}`);
-        linked = true;
+        body = `${stamp}\n${body}`;   // 无 frontmatter 的极端情况
       }
+      rmSync(link, { force: true, recursive: true });
+      mkdirSync(link, { recursive: true });
+      writeFileSync(path.join(link, 'SKILL.md'), body, 'utf8');
+      lines.push(`  ✓ 已安装（真实目录）：${link}`);
+      lines.push(`      SKILL.md ← ${skillMd}`);
+      linked = true;
     } catch (e) {
       // 沙箱/权限不允许写 home 时：给出**可复制执行的命令**，而不是只报错
       lines.push(`  ✗ 无法写入 ${link}（${e.message}）`);
       lines.push('    请手动执行：');
-      lines.push(`      ln -sfn ${src} ${link}`);
+      lines.push(`      mkdir -p ${link} && cp ${path.join(src, 'SKILL.md')} ${link}/SKILL.md`);
     }
     if (linked) {
       lines.push('');

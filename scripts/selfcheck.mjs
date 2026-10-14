@@ -1945,7 +1945,65 @@ function sc57() {
 }
 
   sc56();
+/**
+ * SC58：可视化必须**可交付** —— `view` 要给出 fileUrl（聊天才能直接 present 给用户），
+ * 且默认产物落在**项目内稳定路径**（不是 /tmp，否则用户回头就找不到）。
+ * 教训：只给一条"请自己运行 devflow view"的命令，等于把工作推回给用户。
+ */
+function sc58() {
+  const root = tmpProject('deliver');
+  write(root, 'package.json', '{"name":"dv"}\n', 0o644);
+  write(root, 'devflow.json', JSON.stringify({ devflow: { project: 'dv', kit: '^1.13.0' },
+    gates: { build: { run: './scripts/build.sh' } } }), 0o644);
+  write(root, 'scripts/build.sh', '#!/usr/bin/env bash\necho ok\n', 0o755);
+  const cli = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  execFileSync(process.execPath, [cli, 'init', '--name', 'dv'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'new', '--date', '2026-10-14', '--slug', 'd', '--tier', 'light',
+    '--title', 't', '--owner', '张三', '--repos', 'r'], { cwd: root, stdio: 'pipe' });
+
+  const run = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+
+  // ① 默认输出落在项目内（稳定路径），并给出 fileUrl
+  const def = run(['view', '--json']);
+  let dj = null;
+  try { dj = JSON.parse(def.stdout); } catch { /* 忽略 */ }
+  // 用 realpath 比较：macOS 上 /tmp 是 /private/tmp 的软链，
+  // 直接比字符串会把"就在项目内"判成"在项目外"（实测踩到）
+  // 默认产物必须**落在项目内**。判据不依赖 realpath：
+  // macOS 上 /var 与 /private/var 是同一目录的两种写法，realpathSync 并不总是规范化，
+  // 用字符串前缀或 relative 会误判（实测踩到）。直接按"文件名 + 是否可从项目根走到"判定。
+  const defFile = path.join(root, 'devflow-view.html');
+  const inProject = Boolean(dj?.out)
+    && path.basename(dj.out) === 'devflow-view.html'
+    && existsSync(defFile);
+  const hasUrl = Boolean(dj?.fileUrl) && String(dj.fileUrl).startsWith('file://');
+  const fileExists = Boolean(dj?.out) && existsSync(dj.out);
+
+  // ② 人读输出里也要出现可打开地址（模型可能只看文本）
+  const human = run(['view']);
+  const humanHasUrl = /file:\/\//.test(human.stdout);
+
+  // ③ 指定 --out 时 fileUrl 随之变化且指向该文件
+  // --out 用**相对路径**（相对项目根解析），这是真实用法
+  const c = run(['view', '--out', 'sub/v.html', '--json']);
+  let cj = null;
+  try { cj = JSON.parse(c.stdout); } catch { /* 忽略 */ }
+  const customOk = Boolean(cj?.fileUrl) && cj.fileUrl.endsWith('sub/v.html')
+    && existsSync(path.join(root, 'sub', 'v.html'));
+
+  // ④ 技能里必须写明"要用 present 直接交付"（否则模型仍会把命令丢给用户）
+  const skill = readFileSync(path.join(KIT_ROOT, 'skill', 'SKILL.md'), 'utf8');
+  const skillDelivers = /present/.test(skill) && /不要只回复|直接交付/.test(skill);
+
+  record('SC58', '视图可交付：给出 fileUrl、默认落在项目内、技能要求直接 present',
+    '默认产物在项目内且存在；fileUrl 为 file:// 且人读输出也含地址；--out 时随之变化；技能写明直接交付',
+    `项目内=${inProject} fileUrl=${hasUrl} 文件存在=${fileExists} 人读含地址=${humanHasUrl} 自定义=${customOk} 技能=${skillDelivers}`,
+    inProject && hasUrl && fileExists && humanHasUrl && customOk && skillDelivers);
+  rmSync(root, { recursive: true, force: true });
+}
+
   sc57();
+  sc58();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

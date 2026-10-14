@@ -21,6 +21,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
@@ -1757,6 +1758,7 @@ function cmdBoard(flags) {
       process.stdout.write([
         '',
         `  ${paint('✓ 看板已启动', 'green')}  ${paint(addr, 'bold')}`,
+        `  （在聊天里请把上面这个地址作为可点击链接给出；不要只说"已启动"）`,
         `  内容：节点任务数 · 任务卡（状态/负责人/阻塞原因）· 点任务看「前世今生」`,
         `  实时：文件变化 2 秒内自动刷新（SSE）`,
         '',
@@ -2113,17 +2115,22 @@ try {
 </body></html>`;
 
   const full = path.isAbsolute(outFile) ? outFile : path.join(root, outFile);
+  mkdirSync(path.dirname(full), { recursive: true });   // --out 可能指向不存在的子目录
   writeFileSync(full, html, 'utf8');
   const totalTasks = items.reduce((a, c) => a + c.taskTotal, 0);
   const doneTasks = items.reduce((a, c) => a + c.done, 0);
+  // fileUrl 是给**聊天**用的：模型拿到它就应当直接 present 给用户 ——
+  // 用户说"看看进度"就应看到界面，而不是拿到一条要自己敲的命令。
+  const fileUrl = pathToFileURL(full).href;
   out(flags, [
     `${paint('devflow view', 'bold')}`,
     `  已生成：${full}`,
+    `  可打开：${fileUrl}`,
     `  内容：${items.length} 个变更 · ${totalTasks} 个任务（已完成 ${doneTasks}）`,
     verdict ? `  门禁：${verdict.summary}` : '',
     '',
-    '  用浏览器打开即可；单文件、离线可用、可直接发给别人。',
-  ].filter(Boolean).join('\n'), { out: full, changes: items.length, tasks: totalTasks, done: doneTasks });
+    '  单文件、离线可用、可直接发给别人。',
+  ].filter(Boolean).join('\n'), { out: full, fileUrl, changes: items.length, tasks: totalTasks, done: doneTasks });
 }
 
 /**
@@ -2888,7 +2895,14 @@ function cmdReport(flags) {
   const target = flags.out ? path.resolve(String(flags.out)) : path.join(root, '.devflow', 'board.html');
   mkdirSync(path.dirname(target), { recursive: true });
   writeFileSync(target, html, 'utf8');
-  out(flags, `${paint('看板已生成', 'green')}  ${target}\n  只读视图：不选工作区、不改状态、不做审批（干预请回到会话）`, { target, items: items.length });
+  // fileUrl 是给**聊天**用的：模型拿到它就能直接 present 给用户，
+  // 用户不需要知道任何命令（"给我看看进度" → 界面上直接出现可点开的视图）。
+  const fileUrl = pathToFileURL(target).href;
+  out(flags, [
+    `${paint('视图已生成', 'green')}  ${target}`,
+    `  可打开：${fileUrl}`,
+    '  只读视图：不选工作区、不改状态、不做审批（干预请回到会话）',
+  ].join('\n'), { target, fileUrl, items: items.length });
 }
 
 function renderBoard({ title, profile, items, generatedAt }) {
@@ -3105,6 +3119,8 @@ function cmdWorkspace(flags, positional) {
       ws.members = (ws.members || []).filter((m) => m.name !== target);
       if (ws.members.length === before) die(`工作区不含该仓：${target}`, 2);
     }
+    // --out 可能指向不存在的子目录：先建父目录（否则用户自定义路径会直接失败）
+    mkdirSync(path.dirname(file), { recursive: true });
     writeFileSync(file, `${JSON.stringify(ws, null, 2)}\n`, 'utf8');
     out(flags, `${paint('devflow workspace ' + sub, 'bold')}  ${target}\n  现有 ${ws.members.length} 个仓：${ws.members.map((m) => m.name).join('、') || '(无)'}`,
       { action: sub, member: target, count: ws.members.length });

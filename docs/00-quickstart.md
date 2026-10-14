@@ -29,11 +29,33 @@ cd <你的项目>
 ~/.devflow-kit/bin/devflow setup
 ```
 
-它会做两件事：
+它会做三件事：
 1. 装 **git 提交钩子**（拦下不合规的提交信息）；
-2. 装 **DSH 聊天技能**（之后可以在聊天里说人话驱动工作流）。
+2. 装 **DSH 聊天技能**（软链到 `~/.dsh/skills/devflow`）；
+3. 记录 **kit 位置**（写 `~/.dsh/devflow.json`，供技能定位 CLI）。
 
-> ⚠️ `.git/hooks/` **不在版本控制里** —— 每台新机器、每次重新 clone 都要跑一次 `setup`。
+> ⚠️ `.git/hooks/` 与 `~/.dsh/skills/` **都不在版本控制里** —— 每台新机器、每次重新 clone 都要跑一次 `setup`。
+
+### DSH 与工作流是怎么连上的
+
+```
+你（在聊天里说人话）
+   ↓
+DSH 发现技能 ~/.dsh/skills/devflow → 加载其中的 SKILL.md（模型读的协议）
+   ↓
+模型按协议里的「人话 → 环节映射表」决定该做什么
+   ↓
+模型执行 kit 里的 CLI（devflow start / new / clarify / gate run / view …）
+   ↓
+CLI 读写你项目里的 .devflow/ 产物，并把机械结论（门禁/标准/契约）返回给模型
+   ↓
+模型用人话把结果告诉你；需要你决策时用选择框问你
+```
+
+**三个要点**：
+* **技能只是一份协议**（`SKILL.md`），不含逻辑 —— 单一事实源仍是 CLI 与 `spec/*.json`；
+* 技能**从自身位置推断 kit 路径**（`skill/` 的上一级就是 kit），所以装在 `~/.devflow-kit` 或任何位置都能工作；也可用 `export DEVFLOW=<kit>/bin/devflow` 显式指定；
+* **聊天里不需要敲命令** —— 命令行方式仍完全可用，两者是同一套底层。
 
 ---
 

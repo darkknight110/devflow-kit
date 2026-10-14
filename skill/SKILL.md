@@ -15,11 +15,43 @@ whenToUse: 用户说"我想加个功能""有个需求""这个怎么分""谁来�
 `git clone https://github.com/darkknight110/devflow-kit.git ~/.devflow-kit`，
 然后 `~/.devflow-kit/bin/devflow setup` 一条命令装好本地钩子与聊天技能。
 
-## 0. 先定位 CLI
+## 0. 先定位 CLI（**必须先做这一步**）
+
+devflow 可能被装在多个位置。按下面的顺序找一个可用的（**不要假设某个固定路径**）：
 
 ```bash
-DF="${DEVFLOW:-/Users/darkrobot/projects/Private-Projects/devflow-kit/bin/devflow}"
-[ -x "$DF" ] || { echo "找不到 devflow CLI，请设置 DEVFLOW"; exit 2; }
+DF=""
+# ① 显式环境变量
+[ -n "${DEVFLOW:-}" ] && [ -x "$DEVFLOW" ] && DF="$DEVFLOW"
+# ② 从**技能自身位置**推（最可靠：技能装在 <kit>/skill/，故上溯一级就是 kit）
+#    skill 目录内容：SKILL.md 与 scripts/
+SKILL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" 2>/dev/null && pwd)"
+for SKILL_DIR in "${SKILL_DIR:-}" "$HOME/.dsh/skills/devflow" "./.devflow-kit/skill"; do
+  [ -n "$DF" ] && break
+  [ -n "$SKILL_DIR" ] || continue
+  # 解软链后上溯一级
+  K="$(cd "$SKILL_DIR/.." 2>/dev/null && pwd)"
+  [ -n "$K" ] && [ -x "$K/bin/devflow" ] && DF="$K/bin/devflow"
+done
+# ②b 用户级配置（部分安装方式会写）
+for cfg in "${DSH_HOME:-$HOME/.dsh}/devflow.json" "$HOME/.config/devflow/config.json"; do
+  [ -n "$DF" ] && break
+  [ -f "$cfg" ] || continue
+  K="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("kit",""))' "$cfg" 2>/dev/null)"
+  [ -n "$K" ] && [ -x "$K/bin/devflow" ] && DF="$K/bin/devflow"
+done
+# ③ 常见安装位置
+for c in "$HOME/.devflow-kit/bin/devflow" "./.devflow-kit/bin/devflow" "$HOME/.npm/bin/devflow"; do
+  [ -z "$DF" ] && [ -x "$c" ] && DF="$c"
+done
+if [ -z "$DF" ]; then
+  echo "找不到 devflow。三种修法："
+  echo "  ① git clone https://github.com/darkknight110/devflow-kit.git ~/.devflow-kit && ~/.devflow-kit/bin/devflow setup"
+  echo "  ② npm install -g devflow-kit"
+  echo "  ③ export DEVFLOW=<kit>/bin/devflow"
+  exit 2
+fi
+export DEVFLOW="$DF"
 ```
 
 ## 1. 人话 → 环节映射（最重要的一张表）

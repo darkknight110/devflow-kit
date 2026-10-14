@@ -1580,6 +1580,33 @@ function cmdSetup(flags) {
   // ① 本地 git 钩子（复用 setup-hooks 的逻辑）
   cmdSetupHooks(flags, { soft: true });
 
+  // ①.5 用户级配置：记录 kit 位置（跨工作区共享）。
+  // 为什么必须有：聊天技能需要知道 CLI 在哪；把它写进一个**稳定位置**，
+  // 技能就不用猜路径（原先技能里写死了作者本机路径 ⇒ 别人拿到用不了，实测踩到）。
+  {
+    // 写在 DSH 家目录（已确认可写）；~/.config 在部分环境受权限限制（实测 EPERM）
+    const dshHomeForCfg = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+    const tries = [
+      { dir: dshHomeForCfg, file: path.join(dshHomeForCfg, 'devflow.json') },
+      { dir: path.join(os.homedir(), '.config', 'devflow'), file: path.join(os.homedir(), '.config', 'devflow', 'config.json') },
+    ];
+    let wrote = null;
+    for (const t of tries) {
+      try {
+        mkdirSync(t.dir, { recursive: true });
+        writeFileSync(t.file, `${JSON.stringify({ kit: KIT_ROOT, updatedAt: new Date().toISOString() }, null, 2)}\n`, 'utf8');
+        wrote = t.file; break;
+      } catch { /* 试下一个 */ }
+    }
+    process.stdout.write(`${paint('devflow setup', 'bold')}  用户配置\n`);
+    if (wrote) {
+      process.stdout.write(`  ✓ 已记录 kit 位置：${wrote}\n      kit → ${KIT_ROOT}\n`);
+    } else {
+      process.stdout.write(`${paint('—', 'yellow')} 未能写入用户配置（权限受限）\n`);
+      process.stdout.write(`    可手动设置：export DEVFLOW=${path.join(KIT_ROOT, 'bin', 'devflow')}\n`);
+    }
+  }
+
   // ② DSH 聊天技能：把 kit 的 skill/ 软链到 <dsh home>/skills/devflow
   const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
   const skillsDir = path.join(dshHome, 'skills');

@@ -1,0 +1,73 @@
+{
+  "name": "契约破坏性判定规则",
+  "purpose": "把「这个改动会不会让消费方中断」从口头判断变成可判定的规则；规则是数据，不是散在代码里的 if。",
+  "version": "1.13.0",
+  "$schemaVersion": "1.13.0",
+  "severityLevels": {
+    "BREAKING": "会让既有消费方中断 —— 必须有兼容策略或并行发版窗口",
+    "WARN": "可能影响消费方，需要人工确认（工具无法判定语义）",
+    "INFO": "不影响兼容，仅记录"
+  },
+  "rules": [
+    {
+      "id": "endpoint-removed",
+      "severity": "BREAKING",
+      "when": "基线里存在的端点，在当前契约里不存在",
+      "why": "既有消费方调用会得到 404",
+      "fix": "保留端点（可标记废弃）或提供替代端点的并行发版窗口"
+    },
+    {
+      "id": "method-removed",
+      "severity": "BREAKING",
+      "when": "同一路径上，基线支持的方法在当前契约里不再支持",
+      "why": "用该方法调用的消费方会失败",
+      "fix": "保留方法或与消费方约定切换时间"
+    },
+    {
+      "id": "endpoint-owner-changed",
+      "severity": "WARN",
+      "when": "端点的 owner（唯一负责改动的仓/团队）发生变化",
+      "why": "所有权变更意味着协调对象变了，容易两边都以为对方在改",
+      "fix": "确认新 owner 已知晓，并同步给消费方"
+    },
+    {
+      "id": "endpoint-surface-changed",
+      "severity": "WARN",
+      "when": "端点的 surface（变更面）发生变化",
+      "why": "surface 决定需要哪些责任层参与，变化可能意味着漏派任务",
+      "fix": "检查 TASKS 的责任层是否仍覆盖该 surface"
+    },
+    {
+      "id": "consumer-compat-not-declared",
+      "severity": "WARN",
+      "when": "存在消费方，但没有声明需要的兼容方式",
+      "why": "没有兼容声明就无法判断改这个契约安不安全",
+      "fix": "在「消费者」表里为每个消费方填写「需要的兼容」"
+    },
+    {
+      "id": "no-assertion-command",
+      "severity": "WARN",
+      "when": "「校验方式」表里没有一条可运行的断言命令",
+      "why": "契约只写在文档里会随代码漂移（本产品的基本立场：声明必须有可执行检查）",
+      "fix": "补一条能跑的命令与通过条件"
+    },
+    {
+      "id": "baseline-missing",
+      "severity": "INFO",
+      "when": "没有基线快照，无法比对",
+      "why": "首次使用属正常；此后每次改动都应能对比",
+      "fix": "冻结契约时执行 devflow contract snapshot <变更>"
+    },
+    {
+      "id": "endpoint-added",
+      "severity": "INFO",
+      "when": "当前契约里有基线中没有的端点",
+      "why": "新增端点不影响既有消费方",
+      "fix": "无需处理"
+    }
+  ],
+  "nonGoals": [
+    "不判定字段级语义（如「同一字段含义变了」）—— 纯文本匹配无法判定，必须人工确认",
+    "不替代运行时契约测试 —— 它是静态比对，只覆盖结构变化"
+  ]
+}

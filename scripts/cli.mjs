@@ -41,6 +41,7 @@ import { runProjectGates } from './lib/evidence.mjs';
 import { diagnose, SEVERITIES, mergeStandardBlockers } from './lib/doctor.mjs';
 import { startBoard, collectBoardState } from './lib/board.mjs';
 import { reviewPack, renderPack, currentFingerprint, staleInfo, fingerprint, specDigest } from './lib/review.mjs';
+import { normalizeContract, diffContracts, renderDiff } from './lib/contract.mjs';
 import { loadStandards, checkStandards } from './lib/standards.mjs';
 import { renderTemplate, TEMPLATE_FILES } from './lib/template.mjs';
 import { loadAdapters, detectAdapters, applyAdapter, auditAdapterRegex } from './lib/adapter.mjs';
@@ -54,7 +55,10 @@ function spec(name) {
   return kitSpecCache[name];
 }
 function allSpec() {
-  return { states: spec('states'), artifacts: spec('artifacts'), gates: spec('gates'), roles: spec('roles') };
+  return {
+      states: spec('states'), artifacts: spec('artifacts'), gates: spec('gates'), roles: spec('roles'),
+      breakingRules: spec('breaking-rules'),   // 破坏性判定规则（规则是数据）
+    };
 }
 
 // ────────────────────────────── 参数解析 ──────────────────────────────
@@ -1492,6 +1496,88 @@ function resolveProjectOrWorkspace(flags) {
   return { root: root && existsSync(root) ? root : null, loaded };
 }
 
+/**
+ * devflow contract —— 契约的基线化与破坏性判定。
+ *
+ *   snapshot <变更>   把当前契约存为基线（冻结时做一次）
+ *   diff <变更>       当前契约 vs 基线，按规则正典判定破坏性
+ *   rules             列出判定规则（规则是数据，可被审计与讨论）
+ */
+function cmdContract(flags, positional) {
+  const sub = String(positional?.[0] || flags.sub || '').toLowerCase();
+  const rulesSpec = allSpec()['breakingRules'] || (() => {
+    try { return JSON.parse(readFileSync(path.join(KIT_ROOT, 'spec', 'breaking-rules.json'), 'utf8')); } catch { return null; }
+  })();
+
+  if (sub === 'rules') {
+    const rows = (rulesSpec?.rules || []).map((r) => `  ${r.severity === 'BREAKING' ? '⛔' : r.severity === 'WARN' ? '⚠' : 'ℹ'} ${r.id.padEnd(30)} ${r.when}`);
+    out(flags, [`契约破坏性判定规则（正典：spec/breaking-rules.json）`, '', ...rows,
+      '', '刻意不做：', ...((rulesSpec?.nonGoals || []).map((g) => `  · ${g}`))].join('\n'), { rules: rulesSpec?.rules || [] });
+    return;
+  }
+
+  const { root } = resolveProjectOrWorkspace(flags);
+  if (!root) die('既不是 devflow 项目，也不是多仓工作区', 2);
+  const itemId = flags.item ? String(flags.item) : pickItem(root, positional?.slice(1), flags);
+  if (!itemId) die('用法：devflow contract <snapshot|diff|rules> <变更> [--json]', 2);
+  const dir = machineDir(root, itemId) || path.join(itemsDir(root), itemId);
+  if (!existsSync(dir)) die(`变更目录不存在：${itemId}`, 2);
+
+  const readContract = () => {
+    const names = ['contract.json', 'CONTRACT.md'];
+    for (const n of names) {
+      for (const base of [dir, path.join(itemsDir(root), itemId)]) {
+        const f = path.join(base, n);
+        if (existsSync(f)) return { file: f, text: readFileSync(f, 'utf8'), kind: n.endsWith('.json') ? 'json' : 'md' };
+      }
+    }
+    return null;
+  };
+  const cur = readContract();
+  if (!cur) die(`没有契约文件（contract.json 或 CONTRACT.md）—— 跨边界变更才需要契约`, 2);
+  const current = normalizeContract(cur.kind === 'json' ? JSON.parse(cur.text) : cur.text);
+
+  // 基线必须放在**入库**位置（items/ 下），不是 .local/ ——
+  // 否则 CI 里永远没有基线，"破坏性判定"在 CI 就是一句空话（实测发现）。
+  const baselineFile = path.join(itemsDir(root), itemId, 'baseline', 'contract.json');
+
+  if (sub === 'snapshot') {
+    mkdirSync(path.dirname(baselineFile), { recursive: true });
+    const payload = {
+      item: itemId,
+      frozenAt: new Date().toISOString(),
+      source: path.relative(root, cur.file),
+      endpoints: current.endpoints,
+      consumers: current.consumers,
+      assertions: current.assertions,
+    };
+    writeFileSync(baselineFile, `${JSON.stringify(payload, null, 2)}\n`, 'utf8');
+    try { appendEvent(root, itemId, { event: 'contract.snapshot', endpoints: current.endpoints.length, by: 'cli' }); } catch { /* 忽略 */ }
+    out(flags, [
+      `${paint('✓ 契约基线已冻结', 'green')}　${itemId}`,
+      `  端点：${current.endpoints.length} 个`,
+      `  写入：${path.relative(root, baselineFile)}`,
+      `  此后 devflow contract diff ${itemId} 会与它比对`,
+    ].join('\n'), { itemId, endpoints: current.endpoints.length, baseline: path.relative(root, baselineFile) });
+    return;
+  }
+
+  // 默认 diff
+  let baseline = null;
+  if (existsSync(baselineFile)) {
+    try { baseline = JSON.parse(readFileSync(baselineFile, 'utf8')); } catch { baseline = null; }
+  }
+  const findings = diffContracts(baseline, current, rulesSpec);
+  if (!baseline) findings.unshift({ id: 'baseline-missing', severity: 'INFO', why: '还没有基线快照', fix: `devflow contract snapshot ${itemId}`, detail: '' });
+
+  if (flags.json) {
+    out(flags, { itemId, baseline: baseline ? { endpoints: baseline.endpoints } : null, current: { endpoints: current.endpoints }, findings }, { itemId, findings });
+    return;
+  }
+  out(flags, renderDiff({ itemId, baseline, current, findings }), { itemId, findings });
+  if (flags['fail-on-breaking'] && findings.some((f) => f.severity === 'BREAKING')) process.exitCode = 3;
+}
+
 function cmdReview(flags, positional) {
   const { root } = resolveProjectOrWorkspace(flags);
   if (!root) {
@@ -2466,6 +2552,11 @@ function cmdCi(flags) {
       ...setupGh.map((l) => `          ${l}`),
       '      - name: 人工确认点状态（如实报告，不阻断）',
       '        run: $DEVFLOW review --all',
+      ...(item ? [
+        '      # 契约破坏性判定：仅在有绑定变更时跑（需要该变更已有基线快照）',
+        '      - name: 契约破坏性判定（报告）',
+        '        run: $DEVFLOW contract diff ' + item + ' || true',
+      ] : []),
       '      - name: 体检（门禁自身是否可信）',
       '        run: $DEVFLOW doctor',
       '      - name: 跨仓契约漂移',
@@ -3142,6 +3233,7 @@ try {
     case 'history': cmdHistory(flags, positional); break;
     case 'board': cmdBoard(flags); break;
     case 'review': cmdReview(flags, positional); break;
+    case 'contract': cmdContract(flags, positional); break;
     case 'task': cmdTask(flags, positional); break;
     case 'clarify': cmdClarify(flags, positional); break;
     case 'setup': cmdSetup(flags); break;

@@ -256,6 +256,34 @@ chmod +x scripts/test.sh
 
 ---
 
+## 第 5.5 步：契约破坏性判定（只有跨边界变更需要）
+
+改了对外约定（端点/字段/鉴权）时，**最危险的不是写错，而是漏掉"谁会被影响"**。这一步把它变成机械判定：
+
+```bash
+~/.devflow-kit/bin/devflow contract snapshot <变更>   # 冻结契约时存基线（**入库**，CI 要用）
+~/.devflow-kit/bin/devflow contract diff <变更>       # 当前契约 vs 基线，逐条判定破坏性
+~/.devflow-kit/bin/devflow contract rules             # 规则是数据，可审计、可讨论
+```
+
+**输出形如**：
+
+```
+⛔ BREAKING  endpoint-removed
+    GET /api/orders
+    为什么：既有消费方调用会得到 404
+    怎么办：保留端点（可标记废弃）或提供替代端点的并行发版窗口
+⚠ WARN  endpoint-owner-changed
+    POST /api/orders/{no}/cancel：order-api → order-service
+```
+
+* `BREAKING` = 会让既有消费方中断 ⇒ 必须在「兼容策略」表里给出并行发版/多版本方案；
+* `CI 用法`：`contract diff <变更> --fail-on-breaking` 有 BREAKING 时退出码 3；生成的 CI 默认只**报告**（`|| true`）。
+
+**刻意不做**（写进了正典的 nonGoals）：
+* 不判定**字段语义**变化（"同一字段含义变了"纯文本匹配判不出来）—— 那必须人工确认；
+* 不替代运行时契约测试 —— 这是**静态结构比对**。
+
 ## 第 6.5 步：人工确认点（谁签字、签什么）
 
 三个确认点由正典定义，**门禁会验签**（要求真实姓名 + 时间 + 结论）：

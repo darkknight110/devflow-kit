@@ -1869,7 +1869,83 @@ function sc56() {
 }
 
   sc55();
+/**
+ * SC57：契约破坏性判定必须是**可判定的**（规则是数据），而不是靠人写散文。
+ * 借鉴 buf / oasdiff / cargo-semver-checks 的「稳定规则 ID + 级别 + 基线」数据模型。
+ * 关键：删端点必须判 BREAKING；加端点只算 INFO；判据进 JSON 供 CI 消费。
+ */
+function sc57() {
+  const root = tmpProject('contract');
+  write(root, 'package.json', '{"name":"ct"}\n', 0o644);
+  write(root, 'devflow.json', JSON.stringify({ devflow: { project: 'ct', kit: '^1.12.0' },
+    gates: { build: { run: './scripts/build.sh' } } }), 0o644);
+  write(root, 'scripts/build.sh', '#!/usr/bin/env bash\necho ok\n', 0o755);
+  const cli = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  execFileSync(process.execPath, [cli, 'init', '--name', 'ct'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'new', '--date', '2026-10-14', '--slug', 'd', '--tier', 'heavy',
+    '--title', 't', '--owner', '张三', '--repos', 'r', '--surface', 'contract'], { cwd: root, stdio: 'pipe' });
+  const cFile = path.join(root, '.devflow', 'items', '2026-10-14-d', 'CONTRACT.md');
+  const mk = (eps, consumers, withAssert) => [
+    '# CONTRACT · t', '', '## 所有权', '', '| 端点 | 方法 | owner | surface |', '|---|---|---|---|',
+    ...eps, '', '## 消费者', '', '| 消费方 | 依赖什么 | 需要的兼容 |', '|---|---|---|',
+    ...consumers,
+    ...(withAssert ? ['', '## 校验方式', '', '| 校验方式 | 命令 | 通过条件 |', '|---|---|---|',
+      '| 契约断言 | ./scripts/test.sh | exit=0 |'] : []), '',
+  ].join('\n');
+  const run = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+
+  writeFileSync(cFile, mk([
+    '| /api/orders | GET | order-api | interface |',
+    '| /api/orders/{no}/cancel | POST | order-api | interface |',
+  ], ['| consumer-mp | 分页字段 | 加字段 |'], true), 'utf8');
+
+  // ① 无基线时：应提示 baseline-missing（而非假装通过）
+  const noBase = run(['contract', 'diff', '2026-10-14-d', '--json']);
+  let noBaseJson = null;
+  try { noBaseJson = JSON.parse(noBase.stdout); } catch { /* 忽略 */ }
+  const hintsBaseline = Boolean(noBaseJson?.findings?.some((f) => f.id === 'baseline-missing'));
+
+  // ② 冻结基线
+  const snap = run(['contract', 'snapshot', '2026-10-14-d']);
+  const snapOk = /已冻结/.test(snap.stdout);
+
+  // ③ 无改动时：应无 BREAKING
+  const sameRun = run(['contract', 'diff', '2026-10-14-d', '--json']);
+  let same = null;
+  try { same = JSON.parse(sameRun.stdout); } catch { /* 忽略 */ }
+  const cleanNoBreaking = Boolean(same?.findings) && !same.findings.some((f) => f.severity === 'BREAKING');
+
+  // ④ 删端点 + 改 owner + 加新端点
+  writeFileSync(cFile, mk([
+    '| /api/orders/{no}/cancel | POST | order-service | interface |',
+    '| /api/reports | GET | order-api | data |',
+  ], ['| consumer-mp | 分页字段 | 加字段 |'], true), 'utf8');
+  const d = run(['contract', 'diff', '2026-10-14-d', '--json']);
+  let r = null;
+  try { r = JSON.parse(d.stdout); } catch { /* 忽略 */ }
+  const ids = (r?.findings || []).map((f) => f.id);
+  const removedBreaking = (r?.findings || []).some((f) => f.id === 'endpoint-removed' && f.severity === 'BREAKING');
+  const ownerWarn = (r?.findings || []).some((f) => f.id === 'endpoint-owner-changed' && f.severity === 'WARN');
+  const addedInfo = (r?.findings || []).some((f) => f.id === 'endpoint-added' && f.severity === 'INFO');
+
+  // ⑤ CI 用退出码：有 BREAKING ⇒ 3
+  const failRun = run(['contract', 'diff', '2026-10-14-d', '--fail-on-breaking']);
+  const exitOk = failRun.status === 3;
+
+  // ⑥ 规则正典可审计
+  const rules = run(['contract', 'rules']);
+  const rulesOk = /endpoint-removed/.test(rules.stdout) && /BREAKING|⛔/.test(rules.stdout);
+
+  record('SC57', '契约破坏性判定可判定：规则是数据、基线可比、BREAKING 可阻断 CI',
+    '无基线时提示；冻结后无改动不误报；删端点=BREAKING、改 owner=WARN、加端点=INFO；--fail-on-breaking 退出码 3；规则可列出',
+    `提示基线=${hintsBaseline} 冻结=${snapOk} 无改动干净=${cleanNoBreaking} 删端点BREAKING=${removedBreaking} `
+    + `改ownerWARN=${ownerWarn} 新增INFO=${addedInfo} 退出码3=${exitOk} 规则可审计=${rulesOk} ids=${ids.join(',')}`,
+    hintsBaseline && snapOk && cleanNoBreaking && removedBreaking && ownerWarn && addedInfo && exitOk && rulesOk);
+  rmSync(root, { recursive: true, force: true });
+}
+
   sc56();
+  sc57();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

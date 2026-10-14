@@ -1,6 +1,6 @@
 {
   "$comment": "产物 schema 正典。引擎按此校验必填字段与结构；字段缺失即阻断（G1）。 文档规范（产物头、章节次序、标点、表格约定）见本文件的 documentConventions。",
-  "version": "1.14.0",
+  "version": "1.15.0",
   "itemsDir": ".devflow/items",
   "projectConfig": "devflow.json",
   "workspaceConfig": "devflow.workspace.json",
@@ -223,7 +223,7 @@
     "未实现",
     "阻断"
   ],
-  "$schemaVersion": "1.14.0",
+  "$schemaVersion": "1.15.0",
   "documentConventions": {
     "$comment": "产物「长什么样」的约定。此前在 spec/docs.json 里重复定义过产物结构与 requiredSections，与本节所在的 artifacts.json 冲突（同一事实两个来源）—— 已合并到此，docs.json 已删除。",
     "header": {

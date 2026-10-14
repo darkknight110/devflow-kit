@@ -1334,7 +1334,15 @@ function mermaidEscape(t) {
 
 /** 收集某仓全部变更的图数据 */
 function graphData(root) {
-  const items = listItems(root).map((i) => collectChange(root, i.itemId));
+  // 与看板**共用同一数据来源**（含多仓工作区成员）：
+  // 视图与看板必须是"同一状态的两种视图"，否则两边会各说各话（UI 定论里的硬约束）。
+  const boardState = collectBoardState(root);
+  const items = boardState.changes.map((c) => {
+    const dir = machineDir(root, c.itemId) || path.join(itemsDir(root), c.itemId);
+    let extra = {};
+    try { extra = collectChange(c.repo ? path.join(root, c.repo) : root, c.itemId); } catch { extra = {}; }
+    return { ...extra, ...c, itemId: c.itemId, repo: c.repo || path.basename(root) };
+  });
   return items;
 }
 
@@ -1834,9 +1842,24 @@ function cmdGraph(flags) {
 }
 
 function cmdView(flags) {
-  const { root, loaded, marker } = resolveProject(flags);
+    // 工作区根没有 devflow.json ⇒ 视图在那里也要能用（它本来就该汇总整个工作区）
+  const { root, loaded, marker } = (() => {
+    const r = resolveProjectOrWorkspace(flags);
+    if (!r.root) die('既不是 devflow 项目，也不是多仓工作区', 2);
+    return { root: r.root, loaded: r.loaded, marker: r.root ? 'workspace-or-project' : null };
+  })();
   const outFile = flags.out ? String(flags.out) : 'devflow-view.html';
-  const items = listItems(root).map((i) => collectChange(root, i.itemId));
+  // 与看板**共用同一数据来源**（含多仓工作区成员）：视图与看板必须是
+  // "同一状态的两种视图"，否则两边会各说各话（UI 定论里的硬约束）。
+  const boardState = collectBoardState(root);
+  const items = boardState.changes.length
+    ? boardState.changes.map((c) => {
+      const base = c.repo ? path.join(root, c.repo) : root;
+      let extra = {};
+      try { extra = collectChange(base, c.itemId); } catch { extra = {}; }
+      return { ...extra, ...c };
+    })
+    : listItems(root).map((i) => collectChange(root, i.itemId));
   let verdict = null;
   try {
     verdict = diagnose({ projectRoot: root, config: loaded.config, marker,

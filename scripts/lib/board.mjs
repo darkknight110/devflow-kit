@@ -20,6 +20,7 @@ import http from 'node:http';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { itemsDir, localItemsDir, machineDir, readStatus, rawState } from './state.mjs';
+import { isRealValue, parseApprovals } from './checks.mjs';
 
 // ── 数据收集 ───────────────────────────────────────────────
 
@@ -73,8 +74,35 @@ function collectChange(projectRoot, itemId) {
     from: e.from || null, to: e.to || null, by: e.by || e.actor || null,
     note: e.note || null, verdict: typeof e.verdict === 'string' ? e.verdict : null,
   }));
+  // 人工确认点进度：这是"人最需要一眼看到"的信息（谁还没签、卡在哪个确认点）
+  const appRaw = (() => {
+    for (const f of [path.join(dir, 'APPROVALS.md'), path.join(itemsDir(projectRoot), itemId, 'APPROVALS.md')]) {
+      if (existsSync(f)) return readFileSync(f, 'utf8');
+    }
+    return '';
+  })();
+  // 与门禁/CLI 同一口径：占位值不算已签核
+  const approvals = parseApprovals(appRaw)
+    .filter((a) => isRealValue(a.who) && isRealValue(a.at) && isRealValue(a.verdict))
+    .map((a) => ({ point: String(a.point).trim(), who: a.who, verdict: a.verdict, at: a.at }));
+  const AP = [
+    { id: 'AP1', name: '需求与判据', tiers: ['light', 'standard', 'heavy'] },
+    { id: 'AP2', name: '契约冻结', tiers: ['standard', 'heavy'] },
+    { id: 'AP3', name: '发布批准', tiers: ['light', 'standard', 'heavy'] },
+  ];
+  const tier = status.tier || 'standard';
+  const required = AP.filter((a) => a.tiers.includes(tier)).map((a) => ({
+    ...a,
+    done: approvals.some((x) => x.point.includes(a.name) || a.name.includes(x.point)),
+    who: approvals.find((x) => x.point.includes(a.name) || a.name.includes(x.point))?.who || null,
+    verdict: approvals.find((x) => x.point.includes(a.name) || a.name.includes(x.point))?.verdict || null,
+  }));
+
   return {
     itemId, state: rawState(dir) || '?', tier: status.tier || '?',
+    approvals: required,
+    approvalsDone: required.filter((a) => a.done).length,
+    approvalsTotal: required.length,
     createdAt: status.createdAt || null, updatedAt: status.updatedAt || null,
     tasks, history,
     counts: {
@@ -252,7 +280,7 @@ function drawLanes(s){
     return '<div class="lane"><h3><span>'+esc(STATE_NAME[st.state]||st.state)+'</span><span>'+st.count+'</span></h3>'
       + (items.length ? items.map((c) => '<div class="card req" onclick="openChange(\\''+esc(c.itemId)+'\\')">'
         + '<div class="t">'+esc(c.itemId)+'</div>'
-        + '<div class="meta">'+esc(c.tier)+' · 任务 '+c.counts.done+'/'+c.counts.total
+        + '<div class="meta">'+esc(c.tier)+' · 确认 '+(c.approvalsDone||0)+'/'+(c.approvalsTotal||0)+' · 任务 '+c.counts.done+'/'+c.counts.total
         + (c.counts.blocked ? ' · <span style="color:var(--blocked)">阻塞 '+c.counts.blocked+'</span>' : '')+'</div></div>').join('')
         : '<div class="muted" style="font-size:12px">—</div>')
       + '</div>';
@@ -297,6 +325,12 @@ function openChange(itemId){
     + (c.counts.blocked?('，阻塞 '+c.counts.blocked):'')+'</dd>'
     + '<dt>创建</dt><dd>'+esc(String(c.createdAt||'').slice(0,19).replace('T',' '))+'</dd>'
     + '<dt>更新</dt><dd>'+esc(String(c.updatedAt||'').slice(0,19).replace('T',' '))+'</dd></dl>'
+    + '<h2 style="margin-top:14px">人工确认点（'+(c.approvalsDone||0)+'/'+(c.approvalsTotal||0)+'）</h2>'
+    + ((c.approvals||[]).length ? '<dl class="kv">'+(c.approvals||[]).map((a) =>
+        '<dt>'+esc(a.name)+'</dt><dd>'+(a.done
+          ? '<span style="color:var(--done)">✓ '+esc(a.verdict||'已签')+'</span> · '+esc(a.who||'')
+          : '<span class="muted">未签核</span>')+'</dd>').join('')+'</dl>'
+      : '<p class="muted">本档位无需人工确认点</p>')
     + '<h2 style="margin-top:14px">变更事件（'+c.history.length+'）</h2>' + timeline(c.history);
   document.getElementById('panel').classList.add('open');
 }

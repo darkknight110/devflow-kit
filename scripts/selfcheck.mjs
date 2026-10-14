@@ -2048,7 +2048,44 @@ function sc59() {
 }
 
   sc58();
+/**
+ * SC60：看板的界面资产必须齐备，且 **SSE 只在真实变化时推送**。
+ * 踩过的坑：快照里含 generatedAt ⇒ 每次字符串都不同 ⇒ 去重失效，
+ * 服务每 2 秒推一帧、前端全量重绘，正在展开的卡片会被冲掉（实测发现）。
+ */
+function sc60() {
+  const src = readFileSync(path.join(KIT_ROOT, 'scripts', 'lib', 'board.mjs'), 'utf8');
+
+  // ① 视觉资产：不要再是"单调"的默认样式
+  const visuals = {
+    渐变背景: /radial-gradient|linear-gradient/.test(src),
+    毛玻璃顶栏: /backdrop-filter/.test(src),
+    阴影层次: /box-shadow/.test(src),
+    等宽数字: /tabular-nums/.test(src),
+    响应式: /@media\s*\(max-width/.test(src),
+    降低动效: /prefers-reduced-motion/.test(src),
+    分节标题: /class="sec"/.test(src),
+    空状态: /class="empty"/.test(src),
+  };
+  const visualsOk = Object.values(visuals).every(Boolean);
+
+  // ② JS 依赖的钩子必须一个不少（美化最容易碰坏功能）
+  const hooks = ['stats', 'lanes', 'stages', 'panel', 'panelBody', 'live', 'liveTxt', 'at'];
+  const missingHooks = hooks.filter((k) => !src.includes(`id="${k}"`));
+
+  // ③ 去重必须排除 generatedAt（否则空转也推）
+  const keyFn = /const stateKey = \(\) => \{[\s\S]{0,400}?generatedAt[\s\S]{0,200}?\};/.test(src);
+  const skipsUnchanged = /if \(key === lastKey\) return;/.test(src);
+
+  record('SC60', '看板视觉齐备、JS 钩子完整、SSE 只在真实变化时推送',
+    '含渐变/毛玻璃/阴影/等宽数字/响应式/降低动效/分节/空状态；8 个 JS 钩子齐全；去重排除 generatedAt 且无变化不推送',
+    `视觉=${Object.entries(visuals).filter(([, v]) => !v).map(([k]) => k).join(',') || '齐备'} `
+    + `缺钩子=${missingHooks.join(',') || '无'} 去重键=${keyFn} 跳过未变=${skipsUnchanged}`,
+    visualsOk && missingHooks.length === 0 && keyFn && skipsUnchanged);
+}
+
   sc59();
+  sc60();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

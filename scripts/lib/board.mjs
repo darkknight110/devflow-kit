@@ -185,56 +185,146 @@ export function renderBoardHtml(projectName) {
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>devflow 看板 · ${projectName}</title>
 <style>
- :root{--bg:#0f172a;--panel:#111c33;--card:#16233d;--bd:#25344f;--txt:#e6edf7;--mut:#8ba0bd;
-   --todo:#64748b;--doing:#d97706;--done:#059669;--blocked:#dc2626;--accent:#3b82f6}
+ :root{
+   /* 深色基底：低饱和、层次分明，避免"一片死黑" */
+   --bg:#0b1120; --bg2:#0e1626; --panel:#131d31; --card:#18243c; --card-hi:#1d2a45;
+   --bd:#26344f; --bd-soft:rgba(255,255,255,.07);
+   --txt:#e8eefb; --txt2:#c2cee2; --mut:#8ea3c2;
+   --accent:#5b9dff; --accent-2:#8b7cff;
+   --todo:#7c8da8; --doing:#f0a132; --done:#2fbf7f; --blocked:#f2555a;
+   --shadow:0 1px 2px rgba(0,0,0,.28), 0 8px 24px -12px rgba(0,0,0,.6);
+   --r:12px;
+ }
  *{box-sizing:border-box}
- body{margin:0;font:13px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC",Arial,sans-serif;
-   background:var(--bg);color:var(--txt);-webkit-font-smoothing:antialiased}
- header{padding:14px 20px;border-bottom:1px solid var(--bd);display:flex;align-items:center;gap:14px;flex-wrap:wrap}
- h1{font-size:15px;margin:0;font-weight:600}
- .live{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--mut)}
- .dot-live{width:7px;height:7px;border-radius:50%;background:var(--done);box-shadow:0 0 6px var(--done)}
- .dot-live.off{background:var(--blocked);box-shadow:0 0 6px var(--blocked)}
- .stats{display:flex;gap:10px;padding:14px 20px;flex-wrap:wrap}
- .stat{background:var(--panel);border:1px solid var(--bd);border-radius:10px;padding:10px 14px;min-width:104px}
- .stat b{display:block;font-size:20px;line-height:1.25}
- .stat span{color:var(--mut);font-size:11px}
- main{padding:0 20px 26px}
- .lanes{display:grid;grid-template-columns:repeat(auto-fit,minmax(192px,1fr));gap:12px}
- .lane{background:var(--panel);border:1px solid var(--bd);border-radius:10px;padding:10px;min-height:120px}
- .lane h3{margin:0 0 8px;font-size:12px;color:var(--mut);display:flex;justify-content:space-between}
- .card{background:var(--card);border:1px solid var(--bd);border-left:3px solid var(--todo);border-radius:8px;
-   padding:8px 10px;margin-bottom:8px;cursor:pointer}
- .card:hover{border-color:var(--accent)}
- .card.doing{border-left-color:var(--doing)} .card.done{border-left-color:var(--done)}
- .card.blocked{border-left-color:var(--blocked)}
- .card .t{font-weight:600;font-family:ui-monospace,Menlo,monospace}
- .card .meta{color:var(--mut);font-size:11px;margin-top:2px}
- .tag{display:inline-block;font-size:10px;border-radius:4px;padding:0 5px;margin-left:5px;vertical-align:1px}
- .req{border-left-color:var(--accent)}
- .panel{position:fixed;top:0;right:0;height:100%;width:min(460px,92vw);background:var(--panel);
-   border-left:1px solid var(--bd);transform:translateX(102%);transition:transform .18s ease;overflow:auto;padding:18px}
+ html,body{height:100%}
+ body{
+   margin:0; color:var(--txt); -webkit-font-smoothing:antialiased;
+   font:14px/1.65 -apple-system,BlinkMacSystemFont,"SF Pro Text","PingFang SC","Segoe UI",Arial,sans-serif;
+   background:
+     radial-gradient(1100px 520px at 12% -12%, rgba(91,157,255,.14), transparent 60%),
+     radial-gradient(900px 460px at 100% 0%, rgba(139,124,255,.12), transparent 55%),
+     linear-gradient(180deg, var(--bg) 0%, var(--bg2) 100%);
+   background-attachment:fixed;
+ }
+ /* 顶栏：毛玻璃 + 底边高光，和内容拉开层次 */
+ header{
+   position:sticky; top:0; z-index:20; padding:16px 26px;
+   display:flex; align-items:center; gap:16px; flex-wrap:wrap;
+   background:rgba(11,17,32,.78); backdrop-filter:saturate(160%) blur(14px);
+   border-bottom:1px solid var(--bd-soft);
+   box-shadow:0 1px 0 rgba(255,255,255,.03) inset;
+ }
+ h1{
+   font-size:15px; margin:0; font-weight:650; letter-spacing:.2px;
+   display:flex; align-items:center; gap:9px;
+ }
+ h1:before{
+   content:""; width:9px; height:9px; border-radius:3px;
+   background:linear-gradient(135deg,var(--accent),var(--accent-2));
+   box-shadow:0 0 12px rgba(91,157,255,.7);
+ }
+ .live{display:flex; align-items:center; gap:7px; font-size:12px; color:var(--mut);
+   padding:5px 11px; border:1px solid var(--bd); border-radius:999px; background:rgba(255,255,255,.02)}
+ .dot-live{width:7px; height:7px; border-radius:50%; background:var(--done);
+   box-shadow:0 0 0 3px rgba(47,191,127,.16), 0 0 10px var(--done)}
+ .dot-live.off{background:var(--blocked); box-shadow:0 0 0 3px rgba(242,85,90,.16), 0 0 10px var(--blocked)}
+ /* 指标卡：等宽数字 + 渐隐顶线 */
+ .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:12px; padding:18px 26px 6px}
+ .stat{
+   position:relative; overflow:hidden;
+   background:linear-gradient(180deg,var(--card-hi),var(--card));
+   border:1px solid var(--bd); border-radius:var(--r); padding:13px 15px;
+   box-shadow:var(--shadow); transition:transform .16s ease, border-color .16s ease;
+ }
+ .stat:hover{transform:translateY(-2px)}
+ .stat:after{content:""; position:absolute; inset:0 0 auto 0; height:2px;
+   background:linear-gradient(90deg,var(--accent),var(--accent-2),transparent)}
+ .stat b{display:block; font-size:26px; line-height:1.2; font-weight:680;
+   font-variant-numeric:tabular-nums; letter-spacing:-.4px}
+ .stat span{display:block; margin-top:2px; color:var(--mut); font-size:11.5px; letter-spacing:.3px}
+ main{padding:6px 26px 34px}
+ .muted{color:var(--mut)}
+ /* 分栏看板：列头带计数胶囊 */
+ .lanes{display:grid; grid-template-columns:repeat(auto-fit,minmax(208px,1fr)); gap:14px}
+ .lane{
+   background:linear-gradient(180deg,rgba(255,255,255,.022),transparent 42%),var(--panel);
+   border:1px solid var(--bd); border-radius:var(--r); padding:12px; min-height:132px;
+   box-shadow:var(--shadow);
+ }
+ .lane h3{margin:0 0 10px; font-size:12px; color:var(--txt2); font-weight:600;
+   display:flex; align-items:center; justify-content:space-between; letter-spacing:.4px}
+ .lane h3>span:last-child{
+   background:rgba(255,255,255,.06); border:1px solid var(--bd-soft);
+   min-width:22px; text-align:center; border-radius:999px; padding:1px 7px;
+   font-size:11px; color:var(--mut); font-variant-numeric:tabular-nums;
+ }
+ /* 卡片：左侧状态色条 + 悬停抬升 */
+ .card{
+   position:relative; background:var(--card); border:1px solid var(--bd);
+   border-radius:10px; padding:9px 12px 9px 14px; margin-bottom:9px; cursor:pointer;
+   transition:transform .15s ease, border-color .15s ease, background .15s ease;
+ }
+ .card:before{content:""; position:absolute; left:0; top:9px; bottom:9px; width:3px;
+   border-radius:3px; background:var(--todo)}
+ .card:hover{transform:translateY(-1px); background:var(--card-hi); border-color:#31456a}
+ .card.doing:before{background:var(--doing)} .card.done:before{background:var(--done)}
+ .card.blocked:before{background:var(--blocked)}
+ .card.req:before{background:linear-gradient(180deg,var(--accent),var(--accent-2))}
+ .card .t{font-weight:620; font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12.5px}
+ .card .meta{color:var(--mut); font-size:11px; margin-top:3px; line-height:1.5}
+ .tag{display:inline-block; font-size:10px; font-weight:600; border-radius:5px;
+   padding:1px 6px; margin-left:6px; color:#fff; vertical-align:1.5px; letter-spacing:.2px}
+ /* 抽屉：滑入 + 半透明遮罩感 */
+ .panel{
+   position:fixed; top:0; right:0; height:100%; width:min(468px,93vw); z-index:40;
+   background:linear-gradient(180deg,var(--card-hi),var(--panel) 22%);
+   border-left:1px solid var(--bd); box-shadow:-24px 0 60px -20px rgba(0,0,0,.75);
+   transform:translateX(102%); transition:transform .22s cubic-bezier(.4,0,.2,1);
+   overflow:auto; padding:20px 22px 30px;
+ }
  .panel.open{transform:none}
- .panel h2{font-size:14px;margin:0 0 4px}
- .panel .close{position:absolute;top:12px;right:14px;background:none;border:0;color:var(--mut);font-size:18px;cursor:pointer}
- .kv{display:grid;grid-template-columns:82px 1fr;gap:4px 10px;margin:10px 0}
- .kv dt{color:var(--mut);font-size:12px} .kv dd{margin:0}
- .tl{border-left:2px solid var(--bd);margin:12px 0 0 6px;padding-left:12px}
- .ev{position:relative;padding:4px 0;font-size:12px}
- .ev:before{content:'';position:absolute;left:-17px;top:9px;width:7px;height:7px;border-radius:50%;background:var(--accent)}
- .ev .at{color:var(--mut);font-size:11px}
- .muted{color:var(--mut)} footer{padding:12px 20px;color:var(--mut);font-size:11px;border-top:1px solid var(--bd)}
+ .panel h2{font-size:14px; margin:0 0 5px; font-weight:650; letter-spacing:.2px}
+ .panel h2:first-child{padding-right:28px}
+ .panel .close{
+   position:absolute; top:14px; right:16px; width:28px; height:28px; border-radius:8px;
+   background:rgba(255,255,255,.05); border:1px solid var(--bd); color:var(--mut);
+   font-size:14px; cursor:pointer; transition:.15s;
+ }
+ .panel .close:hover{background:rgba(255,255,255,.1); color:var(--txt)}
+ .kv{display:grid; grid-template-columns:86px 1fr; gap:7px 12px; margin:12px 0}
+ .kv dt{color:var(--mut); font-size:11.5px} .kv dd{margin:0; font-size:12.5px}
+ .kv dd code,footer code{background:rgba(255,255,255,.055); border:1px solid var(--bd-soft);
+   border-radius:5px; padding:1px 5px; font-family:ui-monospace,Menlo,monospace; font-size:11.5px}
+ /* 时间轴：节点带光环 */
+ .tl{border-left:1.5px solid var(--bd); margin:14px 0 0 7px; padding-left:14px}
+ .ev{position:relative; padding:5px 0; font-size:12.5px}
+ .ev:before{content:""; position:absolute; left:-20px; top:11px; width:8px; height:8px;
+   border-radius:50%; background:var(--accent); box-shadow:0 0 0 3px rgba(91,157,255,.16)}
+ .ev .at{color:var(--mut); font-size:11px; margin-top:1px}
+ /* 分节标题与空状态：避免大片空白显得单调 */
+ .sec{display:flex; align-items:baseline; gap:10px; margin:20px 0 10px}
+ .sec>span{font-size:13px; font-weight:640; letter-spacing:.3px}
+ .sec>i{font-style:normal; font-size:11.5px; color:var(--mut)}
+ .empty{padding:18px; text-align:center; color:var(--mut); font-size:12.5px;
+   border:1px dashed var(--bd); border-radius:10px; background:rgba(255,255,255,.015)}
+ footer{padding:14px 26px 26px; color:var(--mut); font-size:11.5px}
+ @media (max-width:640px){
+   header{padding:13px 16px} .stats{padding:14px 16px 4px} main{padding:6px 16px 26px}
+   .stat b{font-size:22px}
+ }
+ @media (prefers-reduced-motion:reduce){*{transition:none!important}}
 </style></head><body>
 <header>
-  <h1>devflow 看板 · ${projectName}</h1>
+  <h1>devflow 看板</h1>
+  <span class="muted" style="font-size:12px">${projectName}</span>
   <div class="live"><span id="live" class="dot-live"></span><span id="liveTxt">连接中…</span></div>
-  <div class="live" style="margin-left:auto">更新于 <span id="at">—</span></div>
+  <div class="live" style="margin-left:auto"><span class="muted">更新于</span> <span id="at">—</span></div>
 </header>
 <div class="stats" id="stats"></div>
 <main>
-  <div class="muted" style="margin:0 0 6px">按状态分栏（任务级）</div>
+  <div class="sec"><span>任务看板</span><i>按状态分栏 · 点卡片看「前世今生」</i></div>
   <div class="lanes" id="lanes"></div>
-  <div class="muted" style="margin:18px 0 6px">按阶段（需求级）</div>
+  <div class="sec"><span>需求进度</span><i>按阶段分栏 · 点卡片看变更事件与人工确认点</i></div>
   <div class="lanes" id="stages"></div>
 </main>
 <aside class="panel" id="panel">
@@ -271,8 +361,10 @@ function drawLanes(s){
   document.getElementById('lanes').innerHTML = cols.map((k) => {
     const all = [];
     for (const c of s.changes) for (const t of c.tasks) if (t.kind === k) all.push([c,t]);
-    return '<div class="lane"><h3><span>'+KIND[k][0]+'</span><span>'+all.length+'</span></h3>'
-      + (all.length ? all.map(([c,t]) => taskCard(c,t)).join('') : '<div class="muted" style="font-size:12px">—</div>')
+    const col = KIND[k][1];
+    return '<div class="lane"><h3><span style="color:'+col+'">'+KIND[k][0]+'</span>'
+      + '<span>'+all.length+'</span></h3>'
+      + (all.length ? all.map(([c,t]) => taskCard(c,t)).join('') : '<div class="empty">暂无任务</div>')
       + '</div>';
   }).join('');
   document.getElementById('stages').innerHTML = s.stageCounts.map((st) => {
@@ -282,7 +374,7 @@ function drawLanes(s){
         + '<div class="t">'+esc(c.itemId)+'</div>'
         + '<div class="meta">'+esc(c.tier)+' · 确认 '+(c.approvalsDone||0)+'/'+(c.approvalsTotal||0)+' · 任务 '+c.counts.done+'/'+c.counts.total
         + (c.counts.blocked ? ' · <span style="color:var(--blocked)">阻塞 '+c.counts.blocked+'</span>' : '')+'</div></div>').join('')
-        : '<div class="muted" style="font-size:12px">—</div>')
+        : '<div class="empty">—</div>')
       + '</div>';
   }).join('');
 }
@@ -356,13 +448,27 @@ es.onerror = () => { document.getElementById('live').className='dot-live off';
 export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onReady }) {
   const clients = new Set();
   const snapshot = () => JSON.stringify(collectBoardState(projectRoot));
+  /**
+   * 去重用的签名：**必须排除 generatedAt**。
+   * 踩过的坑：generatedAt 每次重建都变 ⇒ 快照字符串每次不同 ⇒ 去重失效，
+   * 于是服务每 2 秒推一帧、前端每 2 秒全量重绘一次（正在展开的卡片会被冲掉，实测发现）。
+   * 只在**真实状态变化**时推送。
+   */
+  const stateKey = () => {
+    const st = collectBoardState(projectRoot);
+    const { generatedAt, ...rest } = st;
+    return JSON.stringify(rest);
+  };
 
   // 变更广播：轮询文件（文件即真相，无需采集层）；内容变了才推
-  let last = '';
+  let lastKey = '';
   const timer = setInterval(() => {
-    let cur;
-    try { cur = snapshot(); } catch { return; }
-    if (cur !== last) { last = cur; for (const res of clients) res.write(`data: ${cur}\n\n`); }
+    let key; let payload;
+    try { key = stateKey(); } catch { return; }
+    if (key === lastKey) return;          // 无变化：不推、不重绘
+    lastKey = key;
+    try { payload = snapshot(); } catch { return; }
+    for (const res of clients) res.write(`data: ${payload}\n\n`);
   }, intervalMs);
   timer.unref?.();
 
@@ -387,7 +493,11 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
         connection: 'keep-alive',
       });
       clients.add(res);
-      try { res.write(`data: ${snapshot()}\n\n`); } catch { /* 忽略 */ }
+      try {
+        const first = snapshot();
+        lastKey = stateKey();
+        res.write(`data: ${first}\n\n`);
+      } catch { /* 忽略 */ }
       req.on('close', () => clients.delete(res));
       return;
     }

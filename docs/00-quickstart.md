@@ -36,6 +36,53 @@ cd <你的项目>
 
 > ⚠️ `.git/hooks/` 与 `~/.dsh/skills/` **都不在版本控制里** —— 每台新机器、每次重新 clone 都要跑一次 `setup`。
 
+### 一次装，还是每个项目都装？（作用域）
+
+**这是最容易搞混的地方**。devflow 有两类安装动作，作用域完全不同：
+
+| 动作 | 作用域 | 装几次 | 命令 |
+|---|---|---|---|
+| **DSH 聊天技能**（`~/.dsh/skills/devflow`） | **用户级** | **一次**，跨所有项目生效 | `devflow setup --global` |
+| **kit 位置记录**（`~/.dsh/devflow.json`） | **用户级** | 一次 | 同上 |
+| **git 提交钩子**（`.git/hooks/commit-msg`） | **每个 git 仓** | 每个仓一次 | 在项目里 `devflow setup --project` |
+| **项目接入**（`devflow.json` / 门禁脚本） | **每个仓** | 每个仓一次 | 在项目里 `devflow init` |
+
+```bash
+# 只做一次（跨所有项目）
+~/.devflow-kit/bin/devflow setup --global
+
+# 每个新项目各做一次
+cd <项目> && ~/.devflow-kit/bin/devflow init --name <项目名>   # 接入
+            ~/.devflow-kit/bin/devflow setup --project          # 装钩子
+```
+
+> 不带参数跑 `devflow setup` = 两类都做（幂等，重复跑不会出错）。
+> ⚠️ **钩子与接入是逐仓的**：换机器或重新 clone 后，钩子必然缺失，需重跑 `setup --project`。
+
+### skill 是全局的，那"工作区"是什么？
+
+两者解决**不同的问题**，不重叠：
+
+| | 作用 |
+|---|---|
+| **全局 skill** | 让你在**任何**目录下都能用聊天驱动工作流 —— 解决"能不能用" |
+| **仓库接入（init）** | 让**这个仓**有门禁与产物规范 —— 解决"这个仓能不能被工作流管" |
+| **工作区（workspace）** | 把**多个仓**纳入同一个工作流视野 —— 解决"跨仓协作" |
+
+**为什么需要工作区**：一次变更可能同时改前端、后端、数据库（三个仓）。
+工作区把它们的进展放在一个视图里，并支撑两件单仓做不到的事：
+
+1. **按责任层分派跨仓任务**（TASKS 表的「目标仓」+「负责层」）；
+2. **跨仓契约扫描**（前端调的端点在不在后端 —— 这是唯一不依赖运行环境的机械检查）。
+
+```bash
+cd <工作区根> && devflow workspace init          # 扫描一级子目录里的 git 仓
+devflow workspace                                # 看各仓状态
+devflow workspace add <仓> / remove <仓>          # 维护成员
+```
+
+**单仓项目不需要工作区** —— 直接用 `devflow start` 即可（`start` 会提示这一点）。
+
 ### DSH 与工作流是怎么连上的
 
 ```

@@ -1577,10 +1577,25 @@ ${items[0] && items[0].arch ? `<section class="card"><details class="arch"><summ
  * 那正是本产品的主入口。
  */
 function cmdSetup(flags) {
-  // ① 本地 git 钩子（复用 setup-hooks 的逻辑）
-  cmdSetupHooks(flags, { soft: true });
+  const onlyGlobal = Boolean(flags.global);
+  const onlyProject = Boolean(flags.project);
+  if (onlyGlobal && onlyProject) die('--global 与 --project 不能同时使用', 2);
+  process.stdout.write(`${paint('devflow setup', 'bold')}  ${onlyGlobal ? '（只装用户级）' : onlyProject ? '（只装本项目的钩子）' : '（用户级 + 本项目）'}\n`);
 
-  // ①.5 用户级配置：记录 kit 位置（跨工作区共享）。
+  if (onlyProject) {
+    process.stdout.write('  只装本项目：跳过用户级（技能/配置）—— 它们装一次即可，跨所有项目生效\n\n');
+  }
+
+  // ① 本地 git 钩子 —— **项目级**：每个 git 仓各装一次
+  //    说明：`.git/hooks/` 不在版本控制里，clone 后必然缺失，所以必须逐仓装。
+  if (onlyGlobal) {
+    process.stdout.write('  只装用户级：跳过本项目的 git 钩子（逐仓安装，请在本项目里跑 devflow setup --project）\n\n');
+  } else {
+    cmdSetupHooks(flags, { soft: true });
+  }
+  if (onlyProject) return;
+
+  // ② 用户级配置：记录 kit 位置（跨工作区共享）。
   // 为什么必须有：聊天技能需要知道 CLI 在哪；把它写进一个**稳定位置**，
   // 技能就不用猜路径（原先技能里写死了作者本机路径 ⇒ 别人拿到用不了，实测踩到）。
   {
@@ -1607,7 +1622,7 @@ function cmdSetup(flags) {
     }
   }
 
-  // ② DSH 聊天技能：把 kit 的 skill/ 软链到 <dsh home>/skills/devflow
+  // ③ DSH 聊天技能（**用户级**）：软链到 <dsh home>/skills/devflow —— 装一次，跨所有项目可用
   const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
   const skillsDir = path.join(dshHome, 'skills');
   const link = path.join(skillsDir, 'devflow');

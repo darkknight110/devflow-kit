@@ -1806,7 +1806,70 @@ function sc55() {
 }
 
   sc54();
+/**
+ * SC56：**签字必须绑定所批准的内容** —— 签完再改，原签字必须失效。
+ * 为什么是硬要求：实测确认过这个漏洞 —— 签字后改掉已批准的验收标准，
+ * APPROVALS.md 仍显示「✓ 已记录」、门禁也照样通过。**签完就万事大吉 = 闸门形同虚设。**
+ * 借鉴 doorstop 的 `reviewed` 内容指纹思路。
+ */
+function sc56() {
+  const root = tmpProject('stale');
+  write(root, 'package.json', '{"name":"s"}\n', 0o644);
+  write(root, 'devflow.json', JSON.stringify({ devflow: { project: 's', kit: '^1.9.0' },
+    gates: { build: { run: './scripts/build.sh' } } }), 0o644);
+  write(root, 'scripts/build.sh', '#!/usr/bin/env bash\necho ok\n', 0o755);
+  const cli = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  execFileSync(process.execPath, [cli, 'init', '--name', 's'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'new', '--date', '2026-10-14', '--slug', 'd', '--tier', 'light',
+    '--title', 't', '--owner', '张三', '--repos', 'r'], { cwd: root, stdio: 'pipe' });
+
+  // 规整 SPEC：只留一个验收标准节，且判据是真实内容（否则占位会被拒签）
+  const specFile = path.join(root, '.devflow', 'items', '2026-10-14-d', 'SPEC.md');
+  let spec = readFileSync(specFile, 'utf8');
+  spec = spec.replace(/## 验收标准[\s\S]*?(?=\n## |$)/,
+    '## 验收标准\n\n| AC | 判据 | 判据类型 | 责任方 |\n|---|---|---|---|\n'
+    + '| AC-1 | `./scripts/test.sh` exit=0 | 命令 | 后端 |\n');
+  writeFileSync(specFile, spec, 'utf8');
+
+  const run = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+
+  // ① 签核 → 应写入指纹（5 列，且自动为旧表补列）
+  const sign = run(['review', '2026-10-14-d', '--point', '需求与判据', '--by', '李四', '--verdict', '通过']);
+  const appFile = path.join(root, '.devflow', 'items', '2026-10-14-d', 'APPROVALS.md');
+  const app1 = readFileSync(appFile, 'utf8');
+  const hasFpCol = /内容指纹/.test(app1);
+  const fp1 = (app1.match(/\| ([0-9a-f]{12}) \|/) || [])[1] || null;
+
+  // ② 未改动时：不应判失效
+  const clean = run(['review', '2026-10-14-d', '--point', '需求与判据']);
+  const notStale = !/签字已失效/.test(clean.stdout);
+
+  // ③ 篡改已批准的内容 → 必须判失效
+  writeFileSync(specFile, readFileSync(specFile, 'utf8').replace('exit=0', 'exit=0 且输出含「提前99天」'), 'utf8');
+  const after = run(['review', '2026-10-14-d', '--point', '需求与判据']);
+  const detected = /签字已失效/.test(after.stdout) && /指纹/.test(after.stdout);
+
+  // ④ 门禁必须反映（G1b 报缺记录）：失效率等同于未签
+  const gate = run(['gate', 'run', '2026-10-14-d', '--to', 'verified', '--check']);
+  const gateReflects = /G1b/.test(gate.stdout) && /需求与判据/.test(gate.stdout);
+
+  // ⑤ 重新签核 → 指纹更新，且不再判失效
+  run(['review', '2026-10-14-d', '--point', '需求与判据', '--by', '李四', '--verdict', '通过', '--note', '重新确认']);
+  const app2 = readFileSync(appFile, 'utf8');
+  const fp2 = (app2.match(/\| ([0-9a-f]{12}) \|/) || [])[1] || null;
+  const resigned = run(['review', '2026-10-14-d', '--point', '需求与判据']);
+  const noLongerStale = !/签字已失效/.test(resigned.stdout);
+  const fpChanged = Boolean(fp1 && fp2 && fp1 !== fp2);
+
+  record('SC56', '签字绑定内容：签完再改则原签字失效（门禁等同未签）',
+    '签核写入指纹并自动补列；未改动不判失效；篡改后判失效且门禁反映；重新签核后指纹更新且恢复正常',
+    `指纹列=${hasFpCol} 指纹1=${fp1} 未改动不失效=${notStale} 篡改后失效=${detected} 门禁反映=${gateReflects} 指纹2=${fp2} 指纹更新=${fpChanged} 恢复=${noLongerStale}`,
+    hasFpCol && fp1 && notStale && detected && gateReflects && fpChanged && noLongerStale);
+  rmSync(root, { recursive: true, force: true });
+}
+
   sc55();
+  sc56();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

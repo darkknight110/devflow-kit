@@ -125,7 +125,20 @@ export function reviewPack({ itemId, tier, point, spec, tasks, verification, con
 /** 人类可读的决策包文本 */
 export function renderPack(pack, itemId) {
   const L = [];
-  L.push(`确认点：${pack.name}${pack.recorded ? `　（已记录：${pack.recorded.who} / ${pack.recorded.verdict}）` : '　（尚未记录）'}`);
+  const st = staleInfo(pack.recorded, pack.currentFingerprint);
+  const recLine = !pack.recorded ? '　（尚未记录）'
+    : st.stale ? `　⏸ **签字已失效**（记录：${pack.recorded.who} / ${pack.recorded.verdict}）`
+      : `　（已记录：${pack.recorded.who} / ${pack.recorded.verdict}）`;
+  L.push(`确认点：${pack.name}${recLine}`);
+  if (st.stale) {
+    L.push('');
+    L.push(`⏸ **失效原因**：${st.reason}`);
+    L.push('  意味着：有人签字之后，这份材料被改动了 —— 因此**当时的批准不再适用于现在的内容**。');
+    L.push('  需要重新确认。若改动无关紧要（例如仅格式调整），由确认人重新签核即可。');
+  } else if (pack.recorded && st.reason) {
+    L.push('');
+    L.push(`  ℹ ${st.reason}`);
+  }
   L.push('');
   L.push(`要判断的问题：${pack.question}`);
   L.push('');
@@ -147,6 +160,11 @@ export function renderPack(pack, itemId) {
     }
   }
   L.push('');
+  if (st.stale && pack.canSign) {
+    L.push('结论建议：内容已变，**原签字失效** —— 需由确认人重新签核（材料本身是齐备的）。');
+    L.push(`重新签核：devflow review ${itemId} --point ${pack.point} --by <真人姓名> --verdict 通过|驳回 --note "<重新确认的理由>"`);
+    return L.join('\n');
+  }
   if (pack.canSign) {
     L.push('结论建议：材料齐备，可以签核。');
     L.push(`记录：devflow review ${itemId} --point ${pack.point} --by <真人姓名> --verdict 通过|驳回 [--note <理由>]`);
@@ -157,4 +175,45 @@ export function renderPack(pack, itemId) {
     L.push('（这不是限制你签字，而是防止在材料不全的情况下"走个形式"—— 那会让确认点失去意义。）');
   }
   return L.join('\n');
+}
+
+// ── 内容指纹：让"签字"绑定"签的是什么" ─────────────────────
+//
+// 为什么必须有：实测确认 —— 签字后**改掉已批准的验收标准**，APPROVALS.md 仍显示
+// 「✓ 已记录」，门禁也照样通过。**签完就万事大吉等于闸门形同虚设。**
+// 做法（借鉴 doorstop 的 `reviewed` 指纹）：把该确认点所批准的**材料内容**取哈希，
+// 签名时一并记录；之后每次复算比对，不一致即判定该签字**已失效**。
+
+import { createHash } from 'node:crypto';
+
+/** 取材料指纹（前 12 位十六进制，足够区分且便于人工核对） */
+export function fingerprint(text) {
+  return createHash('sha256').update(String(text || ''), 'utf8').digest('hex').slice(0, 12);
+}
+
+/** 提取 SPEC 的「验收标准」整节原文（AP1 批准的就是它） */
+export function specDigest(SPEC) {
+  const m = /##\s*验收标准[\s\S]*?(?=\n##\s|\n*$)/.exec(String(SPEC || ''));
+  return m ? m[0] : '';
+}
+
+/**
+ * 计算某确认点**当前**应绑定的指纹。
+ * 返回 null 表示"该确认点没有可绑定的材料"（此时不做失效判定，避免误伤）。
+ */
+export function currentFingerprint({ point, spec, contract, verification }) {
+  const fp = (t) => (t && String(t).trim() ? fingerprint(t) : null);
+  if (point === '需求与判据') return fp(specDigest(spec));
+  if (point === '契约冻结') return fp(contract);
+  if (point === '发布批准') return fp(verification);
+  return null;
+}
+
+/** 判定一条已记录签字是否因内容变化而失效 */
+export function staleInfo(recorded, current) {
+  if (!recorded || !current) return { stale: false, reason: null };
+  const was = String(recorded.fingerprint || '').trim();
+  if (!was) return { stale: false, reason: '未记录指纹（旧格式签字，无法判定是否失效）' };
+  if (was !== current) return { stale: true, reason: `签字时的内容指纹 ${was} ≠ 当前 ${current}（材料已被修改）` };
+  return { stale: false, reason: null };
 }

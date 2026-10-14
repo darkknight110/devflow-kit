@@ -199,6 +199,7 @@ export function parseApprovals(markdown) {
         who: cell(row, table.header, '确认人'),
         at: cell(row, table.header, '时间'),
         verdict: cell(row, table.header, '结论'),
+          fingerprint: cell(row, table.header, '内容指纹'),
       });
     }
   }

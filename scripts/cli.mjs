@@ -40,7 +40,7 @@ import { evaluateGates, summarize, resolveArtifactIn } from './lib/gate.mjs';
 import { runProjectGates } from './lib/evidence.mjs';
 import { diagnose, SEVERITIES, mergeStandardBlockers } from './lib/doctor.mjs';
 import { startBoard, collectBoardState } from './lib/board.mjs';
-import { reviewPack, renderPack } from './lib/review.mjs';
+import { reviewPack, renderPack, currentFingerprint, staleInfo, fingerprint, specDigest } from './lib/review.mjs';
 import { loadStandards, checkStandards } from './lib/standards.mjs';
 import { renderTemplate, TEMPLATE_FILES } from './lib/template.mjs';
 import { loadAdapters, detectAdapters, applyAdapter, auditAdapterRegex } from './lib/adapter.mjs';
@@ -1471,7 +1471,10 @@ function buildReviewPack(root, itemId, point, flags) {
   })() };
   const approvals = parseApprovals(appRaw);
   const { loaded } = { loaded: null };
-  return reviewPack({ itemId, point, spec, tasks, verification, contract, approvals });
+  const pack = reviewPack({ itemId, point, spec, tasks, verification, contract, approvals });
+  // 带上原文：签核时要用它算指纹（签字必须绑定"签的是什么"）
+  pack.specRaw = specRaw; pack.contractRaw = conRaw; pack.verificationRaw = verRaw;
+  return pack;
 }
 
 /**
@@ -1567,6 +1570,7 @@ function cmdReview(flags, positional) {
   }
 
   const pack = buildReviewPack(root, itemId, point, flags);
+  pack.currentFingerprint = currentFingerprint({ point, spec: pack.specRaw, contract: pack.contractRaw, verification: pack.verificationRaw });
 
   // 记录结论
   if (flags.by || flags.verdict) {
@@ -1594,9 +1598,31 @@ function cmdReview(flags, positional) {
     for (let i = 0; i < lines.length; i += 1) {
       if (/^\s*\|/.test(lines[i]) && lines[i].includes(point) && !/确认点/.test(lines[i]) && !/^\s*\|[\s:|-]+\|\s*$/.test(lines[i])) { hit = i; break; }
     }
-    const cells = hit >= 0 ? lines[hit].split('|').map((c) => c.trim()).slice(1, -1) : [point, '', '', ''];
-    while (cells.length < 4) cells.push('');
+    // 旧格式（无「内容指纹」列）自动补列：否则指纹无处可写 ⇒ "签完再改"仍无人察觉
+    // 旧格式（无「内容指纹」列）自动补列：否则指纹无处可写 ⇒ "签完再改"仍无人察觉
+    // 注意：必须**按单元格重建整行**，不能简单在行尾贴字符串（会把列写错位，实测踩到）
+    const hIdx = lines.findIndex((l) => /^\s*\|.*确认点/.test(l) && /确认人/.test(l));
+    if (hIdx >= 0 && !/内容指纹/.test(lines[hIdx])) {
+      const rebuild = (l, extra) => {
+        const cs = l.split('|').map((c) => c.trim());
+        const head = cs[0]; const tail = cs[cs.length - 1];
+        const body = cs.slice(1, -1);
+        while (body.length < 4) body.push('');
+        return `${head}| ${body.slice(0, 4).join(' | ')} | ${extra} |${tail}`;
+      };
+      lines[hIdx] = rebuild(lines[hIdx], '内容指纹');
+      if (/^\s*\|[\s:|-]+\|\s*$/.test(lines[hIdx + 1] || '')) lines[hIdx + 1] = rebuild(lines[hIdx + 1], '---');
+      // 已有记录行补占位格：旧签字无指纹 ⇒ 保持"不判定失效"，不误伤历史
+      for (let i = hIdx + 2; i < lines.length && /^\s*\|/.test(lines[i]); i += 1) {
+        if (!/内容指纹/.test(lines[i])) lines[i] = rebuild(lines[i], '（无）');
+      }
+    }
+    const cells = hit >= 0 ? lines[hit].split('|').map((c) => c.trim()).slice(1, -1) : [point, '', '', '', ''];
+    while (cells.length < 5) cells.push('');
+    // 指纹：签字必须绑定所批准的内容，否则「签完再改」无人察觉（实测确认过这个漏洞）
+    const fp = currentFingerprint({ point, spec: pack.specRaw, contract: pack.contractRaw, verification: pack.verificationRaw });
     cells[0] = point; cells[1] = String(flags.by); cells[2] = at; cells[3] = String(flags.verdict);
+    cells[4] = fp || '（无可绑定内容）';
     const row = `| ${cells.join(' | ')} |`;
     if (hit >= 0) lines[hit] = row;
     else {

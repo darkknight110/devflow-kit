@@ -10,6 +10,7 @@
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
 import { dirSizeKb, exists, findSection, keyValues, parseAcceptanceCriteria, parseApprovals, parseTasks, parseVerification, readText, listFiles, isRealValue } from './checks.mjs';
+import { currentFingerprint } from './review.mjs';
 import { instructionChainKb } from './manifest.mjs';
 
 const MAX_EVIDENCE_FILES = 6;
@@ -350,6 +351,8 @@ export function evaluateGates(ctx) {
   const stateOrder = ['draft', 'spec_ready', 'contracted', 'implementing', 'tested', 'verified', 'released'];
 
   const specText = readText(resolveArtifactIn(itemDir, 'SPEC.md') || '');
+  const verText = readText(resolveArtifactIn(itemDir, 'verification.md') || '');
+  const concatText = readText(resolveArtifactIn(itemDir, 'CONTRACT.md') || '');
   if (specText) {
     const acs = parseAcceptanceCriteria(specText);
     if (acs.length === 0 && tierInfo.tier !== 'micro') acNotes.push('SPEC 未给出任何验收标准（AC 表为空）');
@@ -370,7 +373,6 @@ export function evaluateGates(ctx) {
       }
     }
     // 验证记录覆盖：只在 verified 起要求 —— 在 spec_ready 就索要"验证覆盖"是时序错误
-    const verText = readText(resolveArtifactIn(itemDir, 'verification.md') || '');
     if (verText && acs.length && stateOrder.indexOf(state) >= stateOrder.indexOf('verified')) {
       const rows = parseVerification(verText);
       const covered = new Set(rows.map((r) => r.ac.replace(/\s/g, '')));
@@ -418,7 +420,25 @@ export function evaluateGates(ctx) {
       const requiredPoints = approvalProgression
         .filter(([from, point]) => targetIdx >= stateOrder.indexOf(from) && tierPoints.includes(point))
         .map(([, point]) => point);
-      const missingPoints = requiredPoints.filter((p) => !approvals.some((a) => String(a.point).includes(p)));
+      // 签字必须绑定它所批准的内容：材料被改过 ⇒ 原签字**失效**，等同未签。
+      // 放在门禁（而非只提示）才能真的拦住"签完再改"（实测确认过这个漏洞）。
+      const stalePoints = [];
+      const isStale = (pt) => {
+        const rec = approvals.find((a) => String(a.point).includes(pt));
+        if (!rec) return false;
+        const was = String(rec.fingerprint || '').trim();
+        if (!was || /^[（(]/.test(was)) return false;   // 旧格式/无指纹：不判定失效（避免误伤历史记录）
+        const cur = currentFingerprint({
+          point: pt,
+          spec: pt === '需求与判据' ? specText : undefined,
+          contract: pt === '契约冻结' ? contractText : undefined,
+          verification: pt === '发布批准' ? verificationText : undefined,
+        });
+        if (!cur) return false;
+        if (was !== cur) { stalePoints.push({ point: pt, was, cur }); return true; }
+        return false;
+      };
+      const missingPoints = requiredPoints.filter((p) => !approvals.some((a) => String(a.point).includes(p)) || isStale(p));
       // 规模档不允许确认点时为 0 项
       const need = tierDef.approvals ?? profile.approvalsRequired ?? 0;
       // 硬约束只在 verified 收口一次：

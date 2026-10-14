@@ -4,6 +4,8 @@
 > 与项目无关、**零依赖**（只用 Node 内置模块）、**数据与界面解耦**。
 > 强制力来自**产物契约 + 状态机 + 可执行门禁**，不来自文档。
 
+> **第一次用？直接看 [`docs/00-quickstart.md`](docs/00-quickstart.md)** —— 从装到发版的操作指南，全部命令实测可用。
+
 ## 先拿到它（三选一）
 
 ```bash
@@ -70,6 +72,7 @@ devflow-kit/
 ├── VERSION  LICENSE
 ├── bin/devflow                 入口（转发到 scripts/cli.mjs）
 ├── docs/
+│   ├── 00-quickstart.md        ★ 操作指南（从零到跑完一次变更，实测可用）
 │   ├── 01-workflow-spec.md     工作流正典（阶段/状态/门禁/角色/验收）
 │   ├── 02-adoption-guide.md    接入指南（十分钟路径 / 存量项目 / 排障）
 │   ├── 03-daily-workflow.md    ★ 日常操作手册（一圈怎么跑、卡住怎么办）

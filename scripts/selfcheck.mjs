@@ -1632,7 +1632,63 @@ function sc52() {
 }
 
   sc51();
+/**
+ * SC53：`devflow graph` 必须产出**语法合法**的 Mermaid，且真实反映依赖与状态。
+ * 依据：图的价值全在"能否被渲染 + 是否说真话"；语法错或丢列都是废图。
+ */
+function sc53() {
+  const root = tmpProject('graph');
+  write(root, 'package.json', '{"name":"g"}\n', 0o644);
+  write(root, 'devflow.json', JSON.stringify({ devflow: { project: 'g', kit: '^1.7.0' },
+    gates: { build: { run: './scripts/build.sh' } } }), 0o644);
+  write(root, 'scripts/build.sh', '#!/usr/bin/env bash\necho ok\n', 0o755);
+  const cli = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  execFileSync(process.execPath, [cli, 'init', '--name', 'g'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'new', '--date', '2026-10-14', '--slug', 'd', '--tier', 'standard',
+    '--title', 't', '--owner', '张三', '--repos', 'order-api'], { cwd: root, stdio: 'pipe' });
+  // 两条任务：T-2 依赖 T-1，且 T-2 阻塞（带原因）
+  writeFileSync(path.join(root, '.devflow', 'items', '2026-10-14-d', 'TASKS.md'), [
+    '# TASKS', '', '## 任务', '',
+    '| T | 目标仓 | 负责层 | 写入范围 | 依赖 | 状态 | 负责人 | 验收命令 | 对应AC |',
+    '|---|---|---|---|---|---|---|---|---|',
+    '| T-1 | order-api | 后端 | src/a.ts | 无 | 已完成 | 张三 | npm test | AC-1 |',
+    '| T-2 | order-api | 前端 | src/b.ts | T-1 | 阻塞（等接口） | 王五 | npm test | AC-2 |',
+    '',
+  ].join('\n'), 'utf8');
+
+  const run = (kind) => spawnSync(process.execPath, [cli, 'graph', '--kind', kind], { cwd: root, encoding: 'utf8' }).stdout;
+
+  // ① 任务图：依赖边 + 状态类 + 负责人 + 阻塞原因
+  const tg = run('tasks');
+  const hasEdge = /T-1 --> T-2/.test(tg);
+  const hasStatusClass = /:::done/.test(tg) && /:::blocked/.test(tg);
+  const hasOwner = /王五/.test(tg);
+  const hasReason = /等接口/.test(tg);            // 图上要能看出"为什么卡住"
+  const hasSubgraph = /subgraph order-api/.test(tg);
+
+  // ② 语法合法性（结构层面）：```mermaid 配对、头部合法、引号/方括号配对
+  const blocks = [...(tg + run('flow') + run('stages')).matchAll(/```mermaid\n([\s\S]*?)```/g)].map((m) => m[1]);
+  const syntaxOk = blocks.length >= 3 && blocks.every((b) => {
+    const lines = b.split('\n').filter((l) => l.trim());
+    const headOk = ['flowchart LR', 'flowchart TD', 'stateDiagram-v2'].includes(lines[0].trim());
+    const quotesOk = lines.every((l) => (l.match(/"/g) || []).length % 2 === 0);
+    const bracketsOk = lines.every((l) => (l.match(/\[/g) || []).length === (l.match(/\]/g) || []).length);
+    return headOk && quotesOk && bracketsOk;
+  });
+
+  // ③ 流转图：必须标出需求落在哪个节点
+  const fg = run('flow');
+  const flowMarksItem = /2026-10-14-d/.test(fg) && /stateDiagram-v2/.test(fg);
+
+  record('SC53', 'devflow graph 产出合法 Mermaid，且真实反映依赖/状态/负责人/阻塞原因',
+    '任务图含依赖边、状态类、负责人、阻塞原因、按仓分组；三种图语法结构合法；流转图标出需求位置',
+    `依赖边=${hasEdge} 状态类=${hasStatusClass} 负责人=${hasOwner} 阻塞原因=${hasReason} 按仓分组=${hasSubgraph} 语法=${syntaxOk} 流转移=${flowMarksItem}`,
+    hasEdge && hasStatusClass && hasOwner && hasReason && hasSubgraph && syntaxOk && flowMarksItem);
+  rmSync(root, { recursive: true, force: true });
+}
+
   sc52();
+  sc53();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

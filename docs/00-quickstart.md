@@ -287,8 +287,20 @@ chmod +x scripts/test.sh
 
 ```bash
 ~/.devflow-kit/bin/devflow start      # 你在哪、有哪些变更、下一步是谁的动作
-~/.devflow-kit/bin/devflow view       # 生成可点击的单文件 HTML 视图
+~/.devflow-kit/bin/devflow view       # 生成可点击的单文件 HTML 视图（含图形）
+~/.devflow-kit/bin/devflow graph      # 输出 Mermaid 图（可贴进 PR / 文档）
 ```
+
+**`graph` 的三种图**（Mermaid 文本，GitHub/GitLab 原生渲染，也可贴进任何支持 Mermaid 的地方）：
+
+| 命令 | 画什么 | 用途 |
+|---|---|---|
+| `graph --kind tasks` | **任务依赖图**：节点=任务，连线=依赖，颜色=状态（含阻塞原因与负责人） | 一眼看出"哪个任务卡住、卡在谁" |
+| `graph --kind flow` | **需求流转图**：每个需求处于哪个节点 | 回答"每个需求走到哪了" |
+| `graph --kind stages` | 工作流状态机（含各状态把门的门禁） | 放进文档/培训材料 |
+| `graph --kind all` | 全部变更的任务图 | 总览 |
+
+> 把 `graph` 的输出**粘进合并请求**，评审者不装任何工具就能看到依赖与阻塞情况。
 
 `view` 生成的文件可以**直接在浏览器打开、发给别人、附在合并请求里**，里面：
 * 每个**阶段芯片可点开** → 看该阶段要求哪些产物、你满足没有、由哪个门禁把关；

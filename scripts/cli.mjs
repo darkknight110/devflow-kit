@@ -947,6 +947,7 @@ function parseTasks(itemDir) {
   const idx = (name) => cols.indexOf(name);
   const iT = idx('T'); const iRepo = idx('目标仓'); const iLayer = idx('负责层');
   const iRange = idx('写入范围'); const iDep = idx('依赖'); const iStatus = idx('状态');
+  const iOwner = idx('负责人');            // 曾漏掉这一列 ⇒ 图上把有负责人的任务显示成「未指派」（实测）
   const iCmd = idx('验收命令'); const iAc = idx('对应AC');
   const out = [];
   for (let i = hi + 1; i < lines.length; i += 1) {
@@ -957,7 +958,7 @@ function parseTasks(itemDir) {
     const at = (k) => (k >= 0 ? (cells[k] || '') : '');
     if (!at(iT) || /^T$/i.test(at(iT))) continue;
     out.push({ t: at(iT), repo: at(iRepo), layer: at(iLayer), range: at(iRange),
-      dep: at(iDep), status: at(iStatus), cmd: at(iCmd), ac: at(iAc) });
+      dep: at(iDep), status: at(iStatus), owner: at(iOwner), cmd: at(iCmd), ac: at(iAc) });
   }
   return out;
 }
@@ -1299,6 +1300,134 @@ function cmdTask(flags, positional) {
   ].join('\n'), { itemId, task: tId, changes });
 }
 
+/**
+ * devflow graph —— 把工作流状态输出成 **Mermaid 图**。
+ *
+ * 为什么用 Mermaid 而不是自建 UI（决策依据）：
+ *   · 文本格式 ⇒ **零依赖、可入库、可 diff**；
+ *   · GitHub / GitLab / 多数编辑器**原生渲染** ⇒ 贴进合并请求即可看；
+ *   · 我们的数据模型本就齐全（状态机 + 任务依赖 + 任务状态 + 目标仓）⇒ 只需渲染，不需新数据；
+ *   · 不引入常驻进程 —— 产品保持"离线可用、单文件"的约束。
+ *
+ * 三种图：
+ *   --kind tasks   任务依赖图（节点=任务，颜色=状态，连线=依赖，含被阻塞者）
+ *   --kind flow    需求流转图（每个需求在哪个节点）
+ *   --kind stages  工作流状态机（正典示意图，可直接进文档）
+ */
+function mermaidEscape(t) {
+  return String(t == null ? '' : t).replace(/["`]/g, "'").replace(/\n/g, ' ').slice(0, 60);
+}
+
+/** 收集某仓全部变更的图数据 */
+function graphData(root) {
+  const items = listItems(root).map((i) => collectChange(root, i.itemId));
+  return items;
+}
+
+function renderTaskGraph(c) {
+  const out = ['```mermaid', 'flowchart LR'];
+  const cls = { 待开始: 'todo', 进行中: 'doing', 已完成: 'done', 阻塞: 'blocked' };
+  const byRepo = {};
+  for (const t of c.tasks) {
+    const r = t.repo || '(本仓)';
+    if (!byRepo[r]) byRepo[r] = [];
+    byRepo[r].push(t);
+  }
+  for (const [repo, list] of Object.entries(byRepo)) {
+    out.push(`  subgraph ${mermaidEscape(repo)}`);
+    for (const t of list) {
+      // 阻塞原因写在状态里（阻塞（原因））—— 图上要能看出"为什么卡住"，否则图没价值
+      const why = /阻塞/.test(t.status) ? String(t.status).replace(/^阻塞[（(]?/, '').replace(/[）)]$/, '') : '';
+      const label = `${t.t} ${t.layer || ''} ${t.owner || '未指派'}${why ? ` ⛔${why}` : ''}`.trim();
+      out.push(`    ${t.t}["${mermaidEscape(label)}"]:::${cls[String(t.status).replace(/（.*/, '')] || 'todo'}`);
+    }
+    out.push('  end');
+  }
+  for (const t of c.tasks) {
+    const dep = String(t.dep || '').trim();
+    if (!dep || dep === '无') continue;
+    for (const d of dep.split(/[、,，;；\s]+/).filter(Boolean)) {
+      if (c.tasks.some((x) => x.t === d)) out.push(`  ${d} --> ${t.t}`);
+    }
+  }
+  out.push('  classDef todo fill:#f3f4f6,stroke:#9ca3af,color:#374151');
+  out.push('  classDef doing fill:#fef3c7,stroke:#d97706,color:#78350f');
+  out.push('  classDef done fill:#d1fae5,stroke:#059669,color:#065f46');
+  out.push('  classDef blocked fill:#fee2e2,stroke:#dc2626,color:#7f1d1d');
+  out.push('```');
+  return out.join('\n');
+}
+
+function renderFlowGraph(items) {
+  const stages = ['draft', 'spec_ready', 'contracted', 'implementing', 'tested', 'verified', 'released'];
+  const name = { draft: '草稿', spec_ready: '需求就绪', contracted: '契约冻结', implementing: '实现中',
+    tested: '待验证', verified: '已验证', released: '已发布' };
+  const out = ['```mermaid', 'stateDiagram-v2', '  direction LR'];
+  const grouped = {};
+  for (const c of items) {
+    const st = stages.includes(c.state) ? c.state : 'draft';
+    (grouped[st] = grouped[st] || []).push(c);
+  }
+  for (const st of stages) {
+    const list = grouped[st] || [];
+    out.push(`  state "${name[st]}${list.length ? `（${list.length}）` : ''}" as ${st}`);
+  }
+  for (let i = 0; i < stages.length - 1; i += 1) out.push(`  ${stages[i]} --> ${stages[i + 1]}`);
+  for (const st of stages) {
+    for (const c of (grouped[st] || [])) {
+      // 用 note 标注每个需求落在哪个节点
+      out.push(`  note right of ${st} : ${mermaidEscape(c.itemId)}`);
+    }
+  }
+  out.push('```');
+  return out.join('\n');
+}
+
+function renderStageGraph() {
+  const defs = allSpec().states.states;
+  const fr = { draft: 'draft', spec_ready: 'spec_ready' };
+  const out = ['```mermaid', 'stateDiagram-v2', '  direction LR'];
+  for (const [k, v] of Object.entries(defs)) {
+    out.push(`  state "${v.name}${v.gate ? ` · ${v.gate}` : ''}" as ${k}`);
+  }
+  const order = ['draft', 'spec_ready', 'contracted', 'implementing', 'tested', 'verified', 'released'];
+  for (let i = 0; i < order.length - 1; i += 1) out.push(`  ${order[i]} --> ${order[i + 1]}`);
+  out.push('```');
+  return out.join('\n');
+}
+
+function cmdGraph(flags) {
+  const { root } = resolveProject(flags);
+  const kind = flags.kind ? String(flags.kind) : 'tasks';
+  const items = graphData(root);
+  const want = (k) => kind === 'all' || kind === k;
+
+  if (kind === 'stages') {
+    out(flags, renderStageGraph(), { kind });
+    return;
+  }
+  if (kind === 'flow') {
+    if (!items.length) die('没有在办变更 —— 先 devflow new 建一个变更', 2);
+    out(flags, renderFlowGraph(items), { kind, items: items.length });
+    return;
+  }
+  if (kind === 'all') {
+    const parts = [];
+    for (const c of items) {
+      parts.push(`### ${c.itemId}（${c.state}）`, '', renderTaskGraph(c), '');
+    }
+    if (!parts.length) die('没有在办变更', 2);
+    out(flags, parts.join('\n'), { kind, items: items.length });
+    return;
+  }
+  // 默认：任务依赖图（全部变更）
+  if (!items.length) die('没有在办变更 —— 先 devflow new 建一个变更', 2);
+  const withTasks = items.filter((c) => c.tasks.length);
+  if (!withTasks.length) die('这些变更还没有任务分解（TASKS.md 未产出）', 2);
+  const parts = withTasks.map((c) => `### ${c.itemId}（${c.state}）\n\n${renderTaskGraph(c)}`);
+  out(flags, parts.join('\n\n'), { kind: 'tasks', items: withTasks.length });
+}
+
 function cmdView(flags) {
   const { root, loaded, marker } = resolveProject(flags);
   const outFile = flags.out ? String(flags.out) : 'devflow-view.html';
@@ -1414,6 +1543,9 @@ function cmdView(flags) {
     <div class="flow">${flow}</div>
     <div class="progress"><div class="bar" style="width:${pct}%"></div></div>
     <div class="muted">任务进度：${c.done}/${c.taskTotal} 已完成（进行中 ${c.running}，阻塞 ${c.blocked}）</div>
+    ${c.taskTotal ? `<details class="graph"><summary>任务依赖图（连线=依赖，颜色=状态）</summary>
+      <pre class="mermaid">${esc(renderTaskGraph(c).replace(/^```mermaid\n/, '').replace(/\n```$/, ''))}</pre>
+    </details>` : ''}
     ${c.taskTotal ? `<div class="filterbar" data-for="${esc(c.itemId)}">
       <span class="muted small">任务列表：</span>
       <button type="button" class="fbtn on" data-filter="all">全部 ${c.taskTotal}</button>
@@ -1460,6 +1592,11 @@ function cmdView(flags) {
  .fnote{font-size:12px;color:var(--mut)}
  details.task.hidden{display:none}
  .nofilter{display:none;padding:10px 12px;color:var(--mut);font-size:13px}
+ details.graph{margin:0 0 10px}
+ details.graph>summary{cursor:pointer;color:var(--mut);font-size:12px}
+ details.graph>summary::-webkit-details-marker{display:none}
+ pre.mermaid{background:#fbfdff;border:1px solid var(--bd);border-radius:8px;padding:10px;overflow:auto;
+   font-size:12px;line-height:1.4;white-space:pre;margin:8px 0 0}
  details.arch>summary{cursor:pointer;font-weight:600}
  details.doc>summary{cursor:pointer;list-style:none}
  details.doc>summary::-webkit-details-marker{display:none}
@@ -1507,9 +1644,26 @@ function cmdView(flags) {
 <h1>devflow 视图 · ${esc(loaded.config?.devflow?.project || path.basename(root))}</h1>
 <div class="sub">${esc(root)}　·　生成于 ${esc(new Date().toISOString().slice(0, 19).replace('T', ' '))}</div>
 ${verdict ? `<section class="card"><h2>门禁可信度</h2><span class="badge ${verdict.trustworthy ? (verdict.counts?.weak ? 'warn' : 'ok') : 'bad'}">${esc(verdict.summary)}</span><div class="muted" style="margin-top:8px">阻断 ${verdict.counts?.block ?? 0} · 削弱 ${verdict.counts?.weak ?? 0} · 提示 ${verdict.counts?.info ?? 0}</div></section>` : ''}
+${items.length ? `<section class="card"><details class="graph" open><summary>需求流转图（每个需求处于哪个节点）</summary>
+    <pre class="mermaid">${esc(renderFlowGraph(items).replace(/^```mermaid\n/, '').replace(/\n```$/, ''))}</pre>
+  </details></section>` : ''}
 ${changeHtml || '<section class="card"><p class="muted">暂无在办变更。可在对话里提出一个需求开始。</p></section>'}
 ${items[0] && items[0].arch ? `<section class="card"><details class="arch"><summary>项目架构与约定（.devflow/architecture.md）</summary><pre class="docbody">${esc(items[0].arch)}</pre></details></section>` : ''}
 <footer>本文件是渲染产物（按需重算，不入库）。数据来源：变更状态、TASKS.md 的任务级状态、体检结论。
+<!-- Mermaid 渲染器：唯一外部依赖，且**失败时降级为纯文本图**（不联网/离线打开仍可用）。
+     若你的环境不能联网，图会以源码形式显示（仍是可读的文本），不是坏页面。 -->
+<script type="module">
+try {
+  const m = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
+  m.default.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' });
+  await m.default.run({ querySelector: 'pre.mermaid' });
+} catch (e) {
+  document.querySelectorAll('pre.mermaid').forEach((el) => {
+    el.insertAdjacentHTML('beforebegin',
+      '<p class="muted small">（未能加载图形渲染器 —— 下面是 Mermaid 源码，可直接复制到支持 Mermaid 的地方渲染）</p>');
+  });
+}
+</script>
 <script>
 /* 唯一的脚本：让"阶段芯片"与"任务列表"联动。
    设计约束：① 不联网、不依赖外部库；② 禁用 JS 时信息仍完整可见（脚本只做显隐，不生成内容）。 */
@@ -2664,6 +2818,7 @@ try {
     case 'migrate-storage': cmdMigrateStorage(flags); break;
     case 'start': cmdStart(flags); break;
     case 'view': cmdView(flags); break;
+    case 'graph': cmdGraph(flags); break;
     case 'task': cmdTask(flags, positional); break;
     case 'clarify': cmdClarify(flags, positional); break;
     case 'setup': cmdSetup(flags); break;

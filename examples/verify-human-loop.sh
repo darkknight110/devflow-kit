@@ -392,14 +392,19 @@ if "$DF" view --out "$P/view.html" >/tmp/hl-view.log 2>&1; then
   for k in "需求澄清" "责任层" "项目架构与约定"; do
     grep -q "$k" "$P/view.html" && pass "视图含：$k" || fail "视图缺少：$k"
   done
-  # 视图约束（第 11 期校准）：**不联网、不依赖外部库**为主；允许一段内联脚本做联动过滤。
-  # 关键要求：① 无 external script；② 禁用 JS 时信息仍完整（脚本只显隐、不生成内容）。
+  # 视图约束（第 12 期校准，**这是一次有意的取舍调整**）：
+  #   允许**一个**可选的外部图形渲染器（Mermaid CDN），因为"图形化"是明确的产品诉求；
+  #   但硬性要求：**离线时必须优雅降级**（图退化为可读的 Mermaid 源码，而不是坏页面）。
+  #   仍然禁止：除渲染器之外的任何外部脚本/样式/字库。
   if grep -qE '<script[^>]+src=' "$P/view.html"; then
-    fail "视图引用了外部脚本（要求离线可用、无外部依赖）"
-  elif grep -qE 'https?://[^"'"'"' ]+\.(js|css)' "$P/view.html"; then
-    fail "视图引用了外部资源"
+    fail "视图用了 <script src> 外链（应改为可降级的动态导入）"
+  elif grep -qE 'https?://[^"'"'"' ]+\.(js|css)' "$P/view.html" \
+       && ! grep -qE 'mermaid@[0-9]+' "$P/view.html"; then
+    fail "视图引用了 Mermaid 之外的外部资源"
+  elif ! grep -q '未能加载图形渲染器' "$P/view.html"; then
+    fail "视图加载外部渲染器但没有降级提示（离线会变成坏页面）"
   else
-    pass "视图自包含、无外部依赖（$(wc -c < "$P/view.html" | tr -d ' ') 字节）；含联动脚本但不联网"
+    pass "视图自包含 + 可选图形渲染器（$(wc -c < "$P/view.html" | tr -d ' ') 字节）；离线降级为源码"
   fi
   # 联动要素必须存在（阶段芯片可点、任务可被过滤）
   if grep -q 'data-stage=' "$P/view.html" && grep -q 'data-stages=' "$P/view.html" && grep -q 'fbtn' "$P/view.html"; then

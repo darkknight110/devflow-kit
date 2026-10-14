@@ -16,6 +16,7 @@ import { evaluateGates, summarize } from './lib/gate.mjs';
 import { runProjectGates } from './lib/evidence.mjs';
 import { rawState } from './lib/state.mjs';
 import { diagnose, mergeStandardBlockers } from './lib/doctor.mjs';
+import { collectBoardState } from './lib/board.mjs';
 import { loadAdapters, detectAdapters, applyAdapter, auditAdapterRegex } from './lib/adapter.mjs';
 import { findPlaceholderContent } from './lib/gate.mjs';
 import { detectEnvFailure } from './lib/doctor.mjs';
@@ -1688,7 +1689,63 @@ function sc53() {
 }
 
   sc52();
+/**
+ * SC54：看板的两块地基 —— ① 任务级事件必须留痕（"前世今生"）；② 状态接口必须反映真实状态。
+ * 没有①，看板只能显示"现在"；没有②，看板会撒谎。
+ */
+function sc54() {
+  const root = tmpProject('board');
+  write(root, 'package.json', '{"name":"b"}\n', 0o644);
+  write(root, 'devflow.json', JSON.stringify({ devflow: { project: 'b', kit: '^1.8.0' },
+    gates: { build: { run: './scripts/build.sh' } } }), 0o644);
+  write(root, 'scripts/build.sh', '#!/usr/bin/env bash\necho ok\n', 0o755);
+  const cli = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  execFileSync(process.execPath, [cli, 'init', '--name', 'b'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'new', '--date', '2026-10-14', '--slug', 'd', '--tier', 'light',
+    '--title', 't', '--owner', '张三', '--repos', 'r'], { cwd: root, stdio: 'pipe' });
+  writeFileSync(path.join(root, '.devflow', 'items', '2026-10-14-d', 'TASKS.md'), [
+    '# TASKS', '', '## 任务', '',
+    '| T | 目标仓 | 负责层 | 写入范围 | 依赖 | 状态 | 负责人 | 验收命令 | 对应AC |',
+    '|---|---|---|---|---|---|---|---|---|',
+    '| T-1 | r | 后端 | src/a.ts | 无 | 待开始 | 张三 | npm test | AC-1 |',
+    '',
+  ].join('\n'), 'utf8');
+
+  // ① 任务级事件：改状态 + 换负责人 + 澄清，都要留痕且可读
+  execFileSync(process.execPath, [cli, 'task', '2026-10-14-d', 'T-1', '--status', '进行中', '--by', '王五'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'task', '2026-10-14-d', 'T-1', '--status', '阻塞', '--note', '等接口', '--by', '李四'], { cwd: root, stdio: 'pipe' });
+  // 负责人也必须能改（断言 owner 之前必须先真的改过，否则测的是"没改也对"）
+  execFileSync(process.execPath, [cli, 'task', '2026-10-14-d', 'T-1', '--owner', '李四'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'clarify', '2026-10-14-d', '--answer', 'U-1', '--text', '答'], { cwd: root, stdio: 'pipe' });
+  const hist = spawnSync(process.execPath, [cli, 'history', '2026-10-14-d', '--json'], { cwd: root, encoding: 'utf8' });
+  let events = [];
+  try { events = JSON.parse(hist.stdout).events; } catch { events = []; }
+  const taskEvents = events.filter((e) => e.event === 'task.update');
+  const hasWho = taskEvents.every((e) => e.by);
+  const hasChanges = taskEvents.some((e) => (e.changes || []).some((c) => /阻塞/.test(c)));
+  const hasClarify = events.some((e) => e.event === 'clarify');
+
+  // ② 状态接口：必须与 TASKS.md 的真实状态一致
+  const st = collectBoardState(root);
+  const c = st.changes.find((x) => x.itemId === '2026-10-14-d');
+  const t1 = c?.tasks?.[0];
+  const kindOk = t1?.kind === 'blocked';
+  const noteOk = t1?.note === '等接口';
+  const ownerOk = t1?.owner === '李四';
+  const countsOk = c?.counts?.blocked === 1 && c?.counts?.total === 1;
+  const histOk = (c?.history || []).filter((e) => e.task).length >= 2;
+
+  record('SC54', '看板地基：任务级事件留痕 + 状态接口与 TASKS.md 一致',
+    'task/clarify 都产生事件且含操作者；看板状态含 kind/note/owner/counts；任务事件可查',
+    `任务事件=${taskEvents.length} 含操作者=${hasWho} 含变更=${hasChanges} 含澄清=${hasClarify} `
+    + `kind=${t1?.kind} note=${t1?.note} owner=${t1?.owner} counts=${countsOk} 事件可查=${histOk}`,
+    taskEvents.length >= 2 && hasWho && hasChanges && hasClarify
+      && kindOk && noteOk && ownerOk && countsOk && histOk);
+  rmSync(root, { recursive: true, force: true });
+}
+
   sc53();
+  sc54();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

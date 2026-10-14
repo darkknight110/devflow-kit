@@ -289,7 +289,35 @@ chmod +x scripts/test.sh
 ~/.devflow-kit/bin/devflow start      # 你在哪、有哪些变更、下一步是谁的动作
 ~/.devflow-kit/bin/devflow view       # 生成可点击的单文件 HTML 视图（含图形）
 ~/.devflow-kit/bin/devflow graph      # 输出 Mermaid 图（可贴进 PR / 文档）
+~/.devflow-kit/bin/devflow board      # 启动本地看板（实时，浏览器打开）
+~/.devflow-kit/bin/devflow history <变更>   # 事件的"前世今生"（谁在何时改了什么）
 ```
+
+### 看板（`devflow board`）
+
+```bash
+~/.devflow-kit/bin/devflow board [--port 8787]
+# → 浏览器打开 http://127.0.0.1:8787
+```
+
+看板内容：
+* **指标卡**：在办变更 / 任务总数 / 进行中 / 已完成 / 阻塞；
+* **按状态分栏**：待开始 · 进行中 · 已完成 · 阻塞（卡片显示负责人与⛔阻塞原因）；
+* **按阶段分栏**：草稿 → … → 已发布，每个需求落在哪一格一目了然；
+* **点任务卡 → 右侧抽屉**：字段详情 + **前世今生**（该任务的全部事件，含谁在何时改的）；
+* **实时**：改动磁盘上的状态后 2 秒内自动刷新（SSE）。
+
+**安全边界（v1 故意收紧）**：只监听 `127.0.0.1`、**只读**（要改状态请在 CLI 或聊天里操作）、无鉴权。
+> 因为只读 + 仅本机，才不需要鉴权；**一旦要加写操作，必须同时加鉴权**。
+
+### 事件的"前世今生"
+
+```bash
+~/.devflow-kit/bin/devflow history <变更>              # 全部事件
+~/.devflow-kit/bin/devflow history <变更> --task T-2   # 只看某个任务
+```
+
+事件在 `advance` / `task` / `clarify` / `gate run` 时自动记录，回答"谁在何时把 T-2 标成阻塞、卡了多久"。
 
 **`graph` 的三种图**（Mermaid 文本，GitHub/GitLab 原生渲染，也可贴进任何支持 Mermaid 的地方）：
 

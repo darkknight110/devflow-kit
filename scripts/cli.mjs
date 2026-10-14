@@ -35,10 +35,11 @@ import {
   gitFacts,
   instructionChainKb,
 } from './lib/manifest.mjs';
-import { createItem, evaluateItem, itemsDir, localItemsDir, machineDir, allItemIds, listItems, recordRun, advance, archive, readStatus, rawState } from './lib/state.mjs';
+import { createItem, evaluateItem, itemsDir, localItemsDir, machineDir, allItemIds, listItems, recordRun, advance, archive, readStatus, rawState, appendEvent, readEvents } from './lib/state.mjs';
 import { evaluateGates, summarize, resolveArtifactIn } from './lib/gate.mjs';
 import { runProjectGates } from './lib/evidence.mjs';
 import { diagnose, SEVERITIES, mergeStandardBlockers } from './lib/doctor.mjs';
+import { startBoard, collectBoardState } from './lib/board.mjs';
 import { loadStandards, checkStandards } from './lib/standards.mjs';
 import { renderTemplate, TEMPLATE_FILES } from './lib/template.mjs';
 import { loadAdapters, detectAdapters, applyAdapter, auditAdapterRegex } from './lib/adapter.mjs';
@@ -1204,6 +1205,9 @@ function cmdClarify(flags, positional) {
   c[3] = flags.pending ? '未决' : '已答';
   lines[idx] = `| ${c.join(' | ')} |`;
   writeFileSync(target, lines.join('\n'), 'utf8');
+  try {
+    appendEvent(root, itemId, { event: 'clarify', qid, state: flags.pending ? '未决' : '已答', by: flags.by ? String(flags.by) : 'cli' });
+  } catch { /* 忽略 */ }
   info = readClarify(itemDir, root);
   out(flags, [
     `${paint('devflow clarify', 'bold')}  ${itemId} · ${qid}`,
@@ -1290,6 +1294,10 @@ function cmdTask(flags, positional) {
   // 导致最后一个单元格被当成另一个 cell，行尾多出 `|  |`（实测踩到）。
   lines[hit] = `| ${cells.join(' | ')} |`;
   writeFileSync(file, lines.join('\n'), 'utf8');
+  // 记录任务级事件（看板与"前世今生"的数据来源）
+  try {
+    appendEvent(root, itemId, { event: 'task.update', task: tId, changes, by: flags.by ? String(flags.by) : 'cli' });
+  } catch { /* 事件记录失败不影响主流程 */ }
 
   out(flags, [
     `${paint('devflow task', 'bold')}  ${itemId} · ${tId}`,
@@ -1394,6 +1402,74 @@ function renderStageGraph() {
   for (let i = 0; i < order.length - 1; i += 1) out.push(`  ${order[i]} --> ${order[i + 1]}`);
   out.push('```');
   return out.join('\n');
+}
+
+/** devflow history —— 查看变更事件流（任务的"前世今生"） */
+/**
+ * devflow board —— 启动本地看板（v1 只读 + SSE 实时刷新）。
+ *
+ * 形态取舍见 scripts/lib/board.mjs 顶部说明：**本地服务而非宿主插件**，
+ * 这样浏览器、任何 agent、以后的桌面壳都能复用同一个状态接口。
+ */
+function cmdBoard(flags) {
+  const { root, loaded } = resolveProject(flags);
+  const port = Number(flags.port || process.env.DEVFLOW_BOARD_PORT || 8787);
+  const intervalMs = Number(flags.interval || 2000);
+  if (!Number.isInteger(port) || port < 1024 || port > 65535) {
+    die(`无效端口：${flags.port}\n  建议 1024–65535（如 --port 8787）`, 2);
+  }
+  out(flags, [
+    `${paint('devflow board', 'bold')}  ${loaded.config?.devflow?.project || path.basename(root)}`,
+    '  正在启动本地看板（只读）…',
+    `  提示：服务只监听 127.0.0.1，不对外暴露；按 Ctrl-C 停止。`,
+  ].join('\n'));
+  startBoard({
+    projectRoot: root,
+    port,
+    intervalMs,
+    onReady: (addr) => {
+      process.stdout.write([
+        '',
+        `  ${paint('✓ 看板已启动', 'green')}  ${paint(addr, 'bold')}`,
+        `  内容：节点任务数 · 任务卡（状态/负责人/阻塞原因）· 点任务看「前世今生」`,
+        `  实时：文件变化 2 秒内自动刷新（SSE）`,
+        '',
+        '  要改状态？在 CLI 或聊天里操作（例如 devflow task <变更> T-2 --status 进行中）',
+      ].join('\n') + '\n');
+    },
+  });
+  // 前台常驻，直到 Ctrl-C
+}
+
+function cmdHistory(flags, positional) {
+  const { root } = resolveProject(flags);
+  const itemId = flags.item ? String(flags.item) : pickItem(root, positional, flags);
+  if (!itemId) die('用法：devflow history <变更> [--json] [--task T-2]', 2);
+  let events = [];
+  try { events = readEvents(root, itemId); } catch { events = []; }
+  if (!events.length) {
+    out(flags, `  ${itemId} 还没有事件记录（history 为空）`, { itemId, events: [] });
+    return;
+  }
+  const only = flags.task ? String(flags.task) : null;
+  const list = only ? events.filter((e) => e.task === only) : events;
+  if (flags.json) { out(flags, { itemId, events: list }, { itemId, events: list }); return; }
+  const fmt = (e) => {
+    const t = String(e.at || '').replace('T', ' ').slice(0, 19);
+    if (e.event === 'task.update') return `${t}  任务 ${e.task}  ${(e.changes || []).join('；')}  (${e.by || '-'})`;
+    if (e.event === 'clarify') return `${t}  澄清 ${e.qid} → ${e.state}  (${e.by || '-'})`;
+    if (e.event === 'gate-run') return `${t}  门禁运行  ${typeof e.verdict === 'string' ? e.verdict : JSON.stringify(e.verdict || {}).slice(0, 40)}`;
+    if (e.event === 'created') return `${t}  创建变更（档位 ${e.tier}，负责人 ${e.owner}）`;
+    if (e.from || e.to) return `${t}  状态 ${e.from || '?'} → ${e.to || '?'}${e.forced ? '（强制）' : ''}  (${e.by || e.actor || '-'})`;
+    return `${t}  ${e.event || '事件'}  ${JSON.stringify(e).slice(0, 60)}`;
+  };
+  out(flags, [
+    `${paint('devflow history', 'bold')}  ${itemId}`,
+    `  事件数：${list.length}${only ? `（仅任务 ${only}）` : ''}`,
+    '',
+    ...list.slice(-40).map((e) => `  ${fmt(e)}`),
+    list.length > 40 ? `  …（只显示最近 40 条，共 ${list.length} 条）` : '',
+  ].filter(Boolean).join('\n'), { itemId, events: list });
 }
 
 function cmdGraph(flags) {
@@ -2819,6 +2895,8 @@ try {
     case 'start': cmdStart(flags); break;
     case 'view': cmdView(flags); break;
     case 'graph': cmdGraph(flags); break;
+    case 'history': cmdHistory(flags, positional); break;
+    case 'board': cmdBoard(flags); break;
     case 'task': cmdTask(flags, positional); break;
     case 'clarify': cmdClarify(flags, positional); break;
     case 'setup': cmdSetup(flags); break;

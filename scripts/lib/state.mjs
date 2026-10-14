@@ -191,6 +191,33 @@ export function advance({ projectRoot, itemId, target, kitSpec, config, cwd, for
   return { ok: true, state: target, forced: Boolean(force), blockedBy: blocking };
 }
 
+
+/**
+ * 追加一条事件到变更的 history（**任务级与操作级事件**的唯一入口）。
+ *
+ * 为什么需要：`advance`/`gate run` 已记录事件，但**任务级变化没有记录** ——
+ * 于是无法回答「T-2 什么时候被谁标成阻塞、卡了多久」。
+ * 看板（devflow board）与"任务前世今生"都依赖这条链路，所以必须集中记录、结构一致。
+ */
+export function appendEvent(projectRoot, itemId, event) {
+  const itemDir = machineDir(projectRoot, itemId) || path.join(itemsDir(projectRoot), itemId);
+  if (!existsSync(itemDir)) return { ok: false, errors: [`变更目录不存在：${itemDir}`] };
+  const status = readStatus(itemDir) || {};
+  const history = status.history || [];
+  history.push({ at: new Date().toISOString(), ...event });
+  // 只保留最近 500 条，避免文件无限增长（看板只需近期事件 + 当前状态）
+  const trimmed = history.length > 500 ? history.slice(-500) : history;
+  writeStatus(itemDir, { ...status, item: itemId, history: trimmed, updatedAt: new Date().toISOString() });
+  return { ok: true, count: trimmed.length };
+}
+
+/** 读取某变更的事件流（供 devflow history / 看板 / 测试使用） */
+export function readEvents(projectRoot, itemId) {
+  const itemDir = machineDir(projectRoot, itemId) || path.join(itemsDir(projectRoot), itemId);
+  const status = readStatus(itemDir) || {};
+  return status.history || [];
+}
+
 /** 记录一次门禁运行结果（供 gate run 使用） */
 export function recordRun({ projectRoot, itemId, kitSpec, config, cwd, records, summary, source }) {
   const itemDir = machineDir(projectRoot, itemId) || path.join(itemsDir(projectRoot), itemId);

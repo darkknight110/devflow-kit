@@ -1777,8 +1777,17 @@ function cmdCi(flags) {
   let itemSource = item ? 'explicit' : null;
   if (!item) {
     try {
-      const ids = listItems(root).map((i) => i.itemId);
-      if (ids.length === 1) { item = ids[0]; itemSource = 'single'; }
+      // **只绑定已入库的变更**：CI 是 checkout 出来的仓库，未入库的变更在 CI 里不存在。
+      // 绑定一个本地未提交的变更 ⇒ 生成的配置在 CI 上必然失败（实测踩到）。
+      const ids = listItems(root).map((i) => i.itemId).filter((id) => {
+        try {
+          const out = execSync(`git ls-files --error-unmatch .devflow/items/${id}`, {
+            cwd: root, stdio: 'pipe', encoding: 'utf8',
+          });
+          return Boolean(out);
+        } catch { return false; }
+      });
+      if (ids.length === 1) { item = ids[0]; itemSource = 'single-tracked'; }
       else if (ids.length > 1) { itemSource = 'ambiguous'; }
       else { itemSource = 'none'; }
     } catch { itemSource = 'none'; }
@@ -1793,12 +1802,24 @@ function cmdCi(flags) {
   const repoUrl = flags['kit-repo'] ? String(flags['kit-repo'])
     : 'https://github.com/darkknight110/devflow-kit.git';
   const kitDir = flags['kit-path'] ? String(flags['kit-path']) : '.devflow-kit';
-  const setup = [
+  const fetchLine = (indent) => [
     `if [ ! -x "${kitDir}/bin/devflow" ]; then`,
     `  git clone --depth 1 ${repoUrl} ${kitDir}`,
     'fi',
+  ];
+  // GitLab：同一 job 内共享 shell，export 即可
+  const setup = [
+    ...fetchLine(),
     `export DEVFLOW="$PWD/${kitDir}/bin/devflow"`,
-    '[ -x "$DEVFLOW" ] || { echo "找不到 devflow：检查 kit 地址或网络"; exit 2; }',
+    `[ -x "$DEVFLOW" ] || { echo "找不到 devflow：检查 kit 地址或网络"; exit 2; }`,
+    `echo "$PWD/${kitDir}/bin" >> $GITHUB_PATH 2>/dev/null || true`,
+  ];
+  // GitHub：每个 step 独立 shell ⇒ 必须写 GITHUB_ENV / GITHUB_PATH，否则下个 step 找不到命令
+  const setupGh = [
+    ...fetchLine(),
+    `echo "DEVFLOW=$PWD/${kitDir}/bin/devflow" >> "$GITHUB_ENV"`,
+    `echo "$PWD/${kitDir}/bin" >> "$GITHUB_PATH"`,
+    `[ -x "$PWD/${kitDir}/bin/devflow" ] || { echo "找不到 devflow：检查 kit 地址或网络"; exit 2; }`,
   ];
   const setupNote = 'devflow 未随仓库分发 —— CI 里按需获取（可用 devflow ci --kit-repo/--kit-path 改成本团队的获取方式）';
   // 无变更可绑定时，用仓库自己的门禁脚本作为必过步骤（那是这个仓真实的验证入口），
@@ -1895,7 +1916,7 @@ function cmdCi(flags) {
       '          fi',
       '      - name: 准备 devflow',
       '        run: |',
-      ...setup.map((l) => `          ${l}`),
+      ...setupGh.map((l) => `          ${l}`),
       '      - name: 门禁（本次变更）',
       ...(GATE_BLOCK ? ['        run: |', ...GATE.split('\n').map((l) => `          ${l}`)] : [`        run: ${GATE}`]),
       '',
@@ -1916,7 +1937,7 @@ function cmdCi(flags) {
       '          fi',
       '      - name: 准备 devflow',
       '        run: |',
-      ...setup.map((l) => `          ${l}`),
+      ...setupGh.map((l) => `          ${l}`),
       '      - name: 体检（门禁自身是否可信）',
       '        run: $DEVFLOW doctor',
       '      - name: 跨仓契约漂移',
@@ -1939,10 +1960,10 @@ function cmdCi(flags) {
     ...content.split('\n').map((l) => `    ${l}`),
     '',
     '  分工：`gate run` 必过（本次变更）；`doctor` 与契约扫描默认不阻断（配置债务与跨仓漂移）。',
-    item ? `  已绑定变更：${item}（来源：${itemSource === 'explicit' ? '--item' : '仓库内唯一在办变更'}）`
+    item ? `  已绑定变更：${item}（来源：${itemSource === 'explicit' ? '--item' : '仓库内唯一已入库的变更'}）`
       : (itemSource === 'ambiguous'
         ? '  注意：仓库内有多个在办变更，未自动绑定 —— 请用 `devflow ci --item <变更>` 明确指定'
-        : '  注意：仓库内没有在办变更（或未入库），门禁步骤改为跑本仓测试脚本；'
+        : '  注意：仓库内没有**已入库**的在办变更，门禁步骤改为跑本仓测试脚本；'
           + '需要绑定变更时用 `devflow ci --item <变更>`'),
     strictDoctor ? '  注意：--strict-doctor 已开启，doctor 失败会阻断（要求门禁配置零债务）。' : '',
     '  提示：git 钩子只在本地生效，clone 后需重装（`devflow setup-hooks`）。',

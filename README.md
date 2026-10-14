@@ -4,8 +4,26 @@
 > 与项目无关、**零依赖**（只用 Node 内置模块）、**数据与界面解耦**。
 > 强制力来自**产物契约 + 状态机 + 可执行门禁**，不来自文档。
 
+## 先拿到它（三选一）
+
 ```bash
-# 十分钟上手（技术栈按 pom.xml/package.json/pyproject.toml/go.mod 自动识别）
+git clone https://github.com/darkknight110/devflow-kit.git ~/.devflow-kit   # ① 直接克隆
+npm install -g devflow-kit                                                  # ② 全局安装
+npx devflow-kit --help                                                      # ③ 临时用一次
+```
+
+> **零依赖**：只用 Node 内置模块（Node ≥18），不需要 `npm install` 装依赖、不需要构建。
+
+## 装到你的项目（一条命令）
+
+```bash
+cd <你的项目>
+~/.devflow-kit/bin/devflow setup      # 装本地提交钩子 + 装 DSH 聊天技能
+```
+
+## 十分钟上手（技术栈按 pom.xml/package.json/pyproject.toml/go.mod 自动识别）
+
+```bash
 ./bin/devflow init --name my-project --stack java-maven   # 不写 --stack 也能自动识别
 ./bin/devflow doctor                          # ★ 先体检：门禁健康 + 基础标准达成，一处看清
 ./bin/devflow standards                       # 逐条判定产品基础标准（含如何自定义/覆盖）

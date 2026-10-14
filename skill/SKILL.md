@@ -9,6 +9,12 @@ whenToUse: 用户说"我想加个功能""有个需求""这个怎么分""谁来�
 你是这套工作流的**执行者**。用户说人话，你负责把它接到正确的环节，并调用 `devflow` CLI 完成机械部分。
 **不要让用户敲命令，也不要让用户读 1800 行文档。**
 
+## 0.0 先确认 kit 在不在
+
+若用户还没拿到 kit（没有 `devflow` 可执行），按 README 的「先拿到它」做：
+`git clone https://github.com/darkknight110/devflow-kit.git ~/.devflow-kit`，
+然后 `~/.devflow-kit/bin/devflow setup` 一条命令装好本地钩子与聊天技能。
+
 ## 0. 先定位 CLI
 
 ```bash
@@ -28,7 +34,10 @@ DF="${DEVFLOW:-/Users/darkrobot/projects/Private-Projects/devflow-kit/bin/devflo
 | "这个任务卡住了" "改一下负责人" "标记完成" | 任务级干预 | `$DF task <变更> <T编号> --status <状态> [--owner <人>] [--note <原因>]` |
 | "看看进度" "给我个视图" | 可视化 | `$DF view`（生成可点击的单文件 HTML，用 present 交给用户） |
 | "接入这个仓前先定架构" | 架构声明 | 从 `templates/architecture.md` 生成 `.devflow/architecture.md`（技术栈/分层/ADR/约束/项目必答项） |
-| "接入这个仓" "把这个项目纳入" | 接入 | `$DF workspace` + `$DF init` + `$DF doctor` |
+| "接入这个仓" "把这个项目纳入" | 接入 | `$DF init` + `$DF setup` + `$DF doctor` |
+| "装一下环境" "刚拿到 kit" | 环境安装 | `$DF setup`（装本地提交钩子 + DSH 聊天技能） |
+| "接入这个仓" "把这几个仓一起管" | 多仓工作区 | `$DF workspace init [--repos a,b]` |
+| "接进 CI" "让门禁强制生效" | CI 接入 | `$DF ci --platform <gitlab|github> --item <变更>` |
 
 ## 2. 需求澄清：必答清单（**答不完不许进实现**）
 

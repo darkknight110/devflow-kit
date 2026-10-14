@@ -1546,7 +1546,49 @@ function sc50() {
 }
 
   sc49();
+/**
+ * SC51：`devflow ci` 生成的配置必须**结构合法且可执行**。
+ * 踩过的坑：① YAML 序列里混注释（`- # 注释`）；② 多行 shell 被拆成多个数组元素；
+ * ③ 契约扫描在单仓 CI 里必然失败（没有后端仓）；④ 生成器里硬编码内部仓库名。
+ */
+function sc51() {
+  const root = tmpProject('ciyaml');
+  write(root, 'package.json', '{"name":"ciyaml"}\n', 0o644);
+  write(root, 'devflow.json', JSON.stringify({ devflow: { project: 'ciyaml', kit: '^1.6.0' },
+    gates: { build: { run: './scripts/build.sh' } } }), 0o644);
+  write(root, 'scripts/build.sh', '#!/usr/bin/env bash\necho ok\n', 0o755);
+  const cli = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  execFileSync(process.execPath, [cli, 'init', '--name', 'ciyaml'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'ci', '--platform', 'gitlab', '--item', '2026-10-14-x'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'ci', '--platform', 'github', '--item', '2026-10-14-x'], { cwd: root, stdio: 'pipe' });
+  const gl = readFileSync(path.join(root, '.gitlab-ci.yml'), 'utf8');
+  const gh = readFileSync(path.join(root, '.github', 'workflows', 'devflow.yml'), 'utf8');
+
+  // ① 不得出现「数组项里带注释」
+  const noCommentInList = (t) => !t.split('\n').some((l) => l.trim().startsWith('- #'));
+  // ② 多行 shell 必须用块标量（`- |`），不要把 if/fi 拆成多个数组元素
+  const gitlabBlockScalar = /script:\s*\n\s*- \|/.test(gl) && !/^\s*- if \[/m.test(gl);
+  // ③ gitlab 的每个 job 都要有 allow_failure 的显式声明（doctor/contract 是报告性质）
+  const reportNonBlocking = /devflow-doctor:[\s\S]*?allow_failure: true/.test(gl)
+    && /devflow-contract:[\s\S]*?allow_failure: true/.test(gl);
+  // ④ 必过 job 不得有 allow_failure
+  const gateBlocks = /devflow-gate:[\s\S]*?stage: gates/.test(gl) && !/devflow-gate:[\s\S]{0,300}allow_failure: true/.test(gl);
+  // ⑤ 不得硬编码内部仓库名
+  const noInternalName = !/metacore|chaincloud|shuaiho/i.test(gl + gh);
+  // ⑥ kit 从公开地址获取（不然 CI 拿不到）
+  const fetchesKit = /github\.com\/darkknight110\/devflow-kit/.test(gl) && /github\.com\/darkknight110\/devflow-kit/.test(gh);
+  // ⑦ GitHub 版同样不得把注释塞进数组（YAML 列表）
+  const ghOk = noCommentInList(gh) && /continue-on-error: true/.test(gh) && /gate run 2026-10-14-x/.test(gh);
+
+  record('SC51', 'devflow ci 生成的配置结构合法、不硬编码内部名、kit 可从公网获取',
+    'GitLab/GitHub 均无「数组项含注释」；GitLab 用块标量；报告 job 不阻断；gate 必过；无内部仓名；含 kit 获取',
+    `gl无注释=${noCommentInList(gl)} gl块标量=${gitlabBlockScalar} 报告不阻断=${reportNonBlocking} gate必过=${gateBlocks} 无内部名=${noInternalName} 可取kit=${fetchesKit} gh=${ghOk}`,
+    noCommentInList(gl) && gitlabBlockScalar && reportNonBlocking && gateBlocks && noInternalName && fetchesKit && ghOk);
+  rmSync(root, { recursive: true, force: true });
+}
+
   sc50();
+  sc51();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

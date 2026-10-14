@@ -1,0 +1,45 @@
+# devflow 自己的 CI：证明"CI 能拿到 kit 并跑通全部门禁"。
+# 这是产品自证的一环 —— 连自己都不跑 CI，就无法要求别人跑。
+name: devflow
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  # 必过：自检 + 五套端到端
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 环境（零依赖，无需 npm install）
+        run: |
+          node --version
+          test ! -d node_modules || { echo "本产品要求零依赖，不应存在 node_modules"; exit 1; }
+      - name: 自检
+        run: node scripts/selfcheck.mjs
+      - name: 五套端到端（含人的闭环）
+        run: bash examples/verify-all.sh
+      - name: 提交信息规范（校验 HEAD）
+        run: node tools/validate-commit-msg.mjs --text "$(git log -1 --format=%B)"
+
+  # 报告性质：kit 对自身校验通过，且不依赖网络
+  self-audit:
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: 模板与正典一致性
+        run: |
+          node scripts/selfcheck.mjs 2>&1 | tail -3
+          echo "---- 正典 ----"
+          ls -1 spec/
+          echo "---- 模板 ----"
+          ls -1 templates/

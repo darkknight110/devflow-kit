@@ -1,6 +1,6 @@
 {
   "$comment": "状态机正典。规则：必须全量枚举；引擎遇到未定义状态必须报错退出，禁止任何默认放行。",
-  "version": "1.5.0",
+  "version": "1.7.0",
   "profiles": {
     "$comment": "规模档决定启用哪些阶段与确认点。同一套内核只换开关。",
     "solo": {
@@ -288,5 +288,5 @@
     "G6": "implementing",
     "G7": "spec_ready"
   },
-  "$schemaVersion": "1.5.0"
+  "$schemaVersion": "1.7.0"
 }

@@ -18,8 +18,10 @@
  *
  * 通用参数：--json 机器可读 | --root <目录> | --help
  */
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, readdirSync, readlinkSync, rmSync, statSync, symlinkSync, writeFileSync } from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
+import { execSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import {
   KIT_ROOT,
@@ -136,14 +138,19 @@ class SilentExit extends Error {
   }
 }
 
-function resolveProject(flags) {
+function resolveProject(flags, opts = {}) {
   if (flags.root) {
     const root = path.resolve(String(flags.root));
     if (!existsSync(path.join(root, 'devflow.json'))) die(`--root 指向的目录缺少 devflow.json：${root}`, 2);
     return { root, loaded: loadProject(root), marker: '--root' };
   }
   const found = resolveProjectRoot();
-  if (!found) die('未找到项目根（需要 devflow.json；建议同时有 .devflow/ 目录）。可先用 `devflow init`，或指定 --root / DEVFLOW_ROOT。', 2);
+  if (!found) {
+    // quiet：调用方会自行回退（例如 setup 在「非 devflow 项目但属 git 仓」时要装钩子）。
+    // 不能走 die —— 它抛 SilentExit 并置退出码，会让"其实成功"的命令报失败。
+    if (opts.quiet) return { root: null, loaded: { ok: false, errors: ['未找到 devflow.json'] }, marker: 'none' };
+    die('未找到项目根（需要 devflow.json；建议同时有 .devflow/ 目录）。可先用 `devflow init`，或指定 --root / DEVFLOW_ROOT。', 2);
+  }
   if (found.warning) process.stderr.write(`${paint('⚠', 'yellow')} ${found.warning}\n`);
   return { root: found.root, loaded: loadProject(found.root), marker: found.marker };
 }
@@ -1562,6 +1569,59 @@ ${items[0] && items[0].arch ? `<section class="card"><details class="arch"><summ
   ].filter(Boolean).join('\n'), { out: full, changes: items.length, tasks: totalTasks, done: doneTasks });
 }
 
+/**
+ * devflow setup —— **一条命令把环境装好**：本地提交钩子 + DSH 聊天技能。
+ *
+ * 为什么合并成一个入口：别人拿到 kit 后需要做两件事（装钩子、装技能），
+ * 分散成两个命令就会漏做其一 —— 而漏做技能意味着"聊天里用不了"，
+ * 那正是本产品的主入口。
+ */
+function cmdSetup(flags) {
+  // ① 本地 git 钩子（复用 setup-hooks 的逻辑）
+  cmdSetupHooks(flags, { soft: true });
+
+  // ② DSH 聊天技能：把 kit 的 skill/ 软链到 <dsh home>/skills/devflow
+  const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+  const skillsDir = path.join(dshHome, 'skills');
+  const link = path.join(skillsDir, 'devflow');
+  const src = path.join(KIT_ROOT, 'skill');
+  const lines = ['', `${paint('devflow setup', 'bold')}  聊天技能（DSH）`];
+  if (!existsSync(skillsDir)) {
+    lines.push(`  — 跳过：未发现 DSH skills 目录（${skillsDir}）`);
+    lines.push('    若你用 DSH：先启动一次 DSH，让它建出该目录，再重跑本命令');
+  } else if (!existsSync(src)) {
+    lines.push(`  ✗ kit 安装不完整：缺少 ${src}`);
+  } else {
+    let linked = false;
+    try {
+      const cur = existsSync(link) ? readlinkSync(link) : null;
+      if (cur === src) {
+        lines.push(`  ✓ 已安装且指向正确：${link}`);
+        linked = true;
+      } else {
+        rmSync(link, { force: true });
+        symlinkSync(src, link);
+        lines.push(`  ✓ 已安装：${link} → ${src}`);
+        linked = true;
+      }
+    } catch (e) {
+      // 沙箱/权限不允许写 home 时：给出**可复制执行的命令**，而不是只报错
+      lines.push(`  ✗ 无法写入 ${link}（${e.message}）`);
+      lines.push('    请手动执行：');
+      lines.push(`      ln -sfn ${src} ${link}`);
+    }
+    if (linked) {
+      lines.push('');
+      lines.push('  之后在 DSH 聊天里说人话即可驱动工作流（无需记命令）：');
+      lines.push('    · "我有个需求：……"      → 走需求澄清',
+        '    · "这个怎么分"            → 按责任层拆任务',
+        '    · "现在到哪了"            → 状态与下一步',
+        '    · "看看进度"              → 生成可点击视图');
+    }
+  }
+  process.stdout.write(`${lines.join('\n')}\n`);
+}
+
 function cmdStart(flags) {
   const { root, loaded, marker } = resolveProject(flags);
   const project = loaded.ok ? (loaded.config?.devflow?.project || path.basename(root)) : path.basename(root);
@@ -1634,10 +1694,27 @@ function nextAction(state) {
   return map[state] || '下一步：运行 devflow status 查看详情';
 }
 
-function cmdSetupHooks(flags) {
-  const { root, loaded } = resolveProject(flags);
+function cmdSetupHooks(flags, opts = {}) {
+  let root = null; let loaded = { ok: false };
+  ({ root, loaded } = resolveProject(flags, { quiet: true }));
+  // 回退：没有 devflow.json 时用 **git 仓根**。
+  // 为什么必须回退：刚克隆下来的 kit 自己**不是** devflow 项目（它是工具），
+  // 若不回退，setup 在「最该能用」的场景里直接失败（实测踩到）。
+  if (!root || !existsSync(root)) {
+    try {
+      root = execSync('git rev-parse --show-toplevel', { cwd: process.cwd(), encoding: 'utf8' }).trim();
+    } catch {
+      die('既不是 devflow 项目，也不在 git 仓库内 —— 无法安装提交钩子。\n'
+        + '  用法：在项目根（有 devflow.json）或任意 git 仓内运行 devflow setup', 2);
+    }
+  }
   const hooksDir = path.join(root, '.git', 'hooks');
   if (!existsSync(hooksDir)) {
+    // `setup` 调用时只警告不中断 —— 它还要继续装聊天技能（那是主入口）。
+    if (opts.soft) {
+      process.stdout.write(`${paint('—', 'yellow')} 跳过提交钩子：本目录不是 git 仓库（${root}）\n`);
+      return;
+    }
     out(flags, `${paint('✗', 'red')} 不是 git 仓库（找不到 .git/hooks）：${root}`, { ok: false });
     process.exitCode = 2;
     return;
@@ -1700,14 +1777,31 @@ function cmdCi(flags) {
   }
   const dryRun = Boolean(flags['dry-run']);
 
-  // 只放**可执行**的行：YAML 的 `- # 注释` 会被当成数组元素（语法错误，实测踩到）。
+  // kit 的获取方式（默认从公开 GitHub 取；可用 --kit-path 改为内网/镜像，或 --kit-repo 换地址）
+  const repoUrl = flags['kit-repo'] ? String(flags['kit-repo'])
+    : 'https://github.com/darkknight110/devflow-kit.git';
+  const kitDir = flags['kit-path'] ? String(flags['kit-path']) : '.devflow-kit';
   const setup = [
-    'export DEVFLOW="${DEVFLOW:-./devflow-kit/bin/devflow}"',
-    '[ -x "$DEVFLOW" ] || { echo "找不到 devflow：请设置 DEVFLOW 指向 kit 的 bin/devflow"; exit 2; }',
+    `if [ ! -x "${kitDir}/bin/devflow" ]; then`,
+    `  git clone --depth 1 ${repoUrl} ${kitDir}`,
+    'fi',
+    `export DEVFLOW="$PWD/${kitDir}/bin/devflow"`,
+    '[ -x "$DEVFLOW" ] || { echo "找不到 devflow：检查 kit 地址或网络"; exit 2; }',
   ];
-  const setupNote = '# devflow 未随仓库分发：CI 里按需获取（改成本团队的获取方式）';
+  const setupNote = 'devflow 未随仓库分发 —— CI 里按需获取（可用 devflow ci --kit-repo/--kit-path 改成本团队的获取方式）';
   const GATE = item ? `$DEVFLOW gate run ${item}` : '$DEVFLOW gate run';
-  const SCAN = '$DEVFLOW contract-scan --workspace . --all-backends --fail-on-drift --fail-on=live';
+  // 契约扫描需要**后端仓在工作区内**。单仓 CI 里通常没有 ⇒ 不能无条件跑：
+  // 无条件跑会必然失败（找不到后端仓），把报告 job 变成噪音（实测：生成的配置跑不通）。
+  // 契约扫描需要工作区内有后端仓。单仓 CI 通常没有 ⇒ 条件执行而不是必然失败。
+  // 后端仓名由 --backend 指定（**不硬编码任何内部仓名**）。
+  const backendRepo = flags.backend ? String(flags.backend) : '';
+  const SCAN = backendRepo
+    ? `if [ -d "./${backendRepo}" ]; then\n`
+      + `  $DEVFLOW contract-scan --workspace . --backend ${backendRepo} --fail-on-drift --fail-on=live\n`
+      + 'else\n'
+      + `  echo "未发现后端仓 ${backendRepo}，跳过契约扫描"\n`
+      + 'fi'
+    : 'echo "未指定 --backend，跳过契约扫描（多仓工作区可用 devflow ci --backend <仓名> 生成）"';
 
   let content;
   let file;
@@ -1723,26 +1817,23 @@ function cmdCi(flags) {
       'devflow-gate:',
       '  stage: gates',
       '  script:',
-      `    # ${setupNote.replace(/^# /, '')}`,
-      ...setup.map((l) => `    - ${l}`),
-      `    - ${GATE}`,
+      ...setup.map((l, i) => (i === 0 ? `    - |\n      ${l}` : `      ${l}`)),
+      `      ${GATE}`,
       '',
       '# 报告性质：门禁自身是否可信（配置债务，默认不阻断）',
       'devflow-doctor:',
       '  stage: report',
       '  script:',
-      `    # ${setupNote.replace(/^# /, '')}`,
-      ...setup.map((l) => `    - ${l}`),
-      '    - $DEVFLOW doctor',
+      ...setup.map((l, i) => (i === 0 ? `    - |\n      ${l}` : `      ${l}`)),
+      '      $DEVFLOW doctor',
       `  allow_failure: ${strictDoctor ? 'false' : 'true'}`,
       '',
       '# 报告性质：跨仓契约漂移（可达）',
       'devflow-contract:',
       '  stage: report',
       '  script:',
-      `    # ${setupNote.replace(/^# /, '')}`,
-      ...setup.map((l) => `    - ${l}`),
-      `    - ${SCAN}`,
+      ...setup.map((l, i) => (i === 0 ? `    - |\n      ${l}` : `      ${l}`)),
+      ...SCAN.split('\n').map((l) => `      ${l}`),
       '  allow_failure: true',
       '',
       '# 注意：不要用 `|| true` 掩盖 devflow-gate 的失败 —— 那会让门禁静默失效。',
@@ -1782,7 +1873,8 @@ function cmdCi(flags) {
       '      - name: 体检（门禁自身是否可信）',
       '        run: $DEVFLOW doctor',
       '      - name: 跨仓契约漂移',
-      `        run: ${SCAN}`,
+      '        run: |',
+      ...SCAN.split('\n').map((l) => `          ${l}`),
       '',
     ].join('\n');
   }
@@ -2448,6 +2540,7 @@ try {
     case 'view': cmdView(flags); break;
     case 'task': cmdTask(flags, positional); break;
     case 'clarify': cmdClarify(flags, positional); break;
+    case 'setup': cmdSetup(flags); break;
     case 'setup-hooks': cmdSetupHooks(flags); break;
     case 'ci': cmdCi(flags); break;
     case 'adapters': cmdAdapters(flags); break;

@@ -1412,7 +1412,18 @@ function renderStageGraph() {
  * 这样浏览器、任何 agent、以后的桌面壳都能复用同一个状态接口。
  */
 function cmdBoard(flags) {
-  const { root, loaded } = resolveProject(flags);
+  let root; let loaded = { config: {} };
+  // 工作区根没有 devflow.json（它不是"项目"）⇒ 也要能用看板。
+  // 判据：有 devflow.json 走项目；否则有 devflow.workspace.json 走工作区。
+  ({ root, loaded } = resolveProject(flags, { quiet: true }));
+  if (!root || !existsSync(root)) {
+    const wsFile = path.join(process.cwd(), 'devflow.workspace.json');
+    if (existsSync(wsFile)) { root = process.cwd(); loaded = { config: {} }; }
+  }
+  if (!root || !existsSync(root)) {
+    die('既不是 devflow 项目，也不是多仓工作区。\n'
+      + '  · 项目：先 devflow init\n  · 工作区：在根目录 devflow workspace init', 2);
+  }
   const port = Number(flags.port || process.env.DEVFLOW_BOARD_PORT || 8787);
   const intervalMs = Number(flags.interval || 2000);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) {

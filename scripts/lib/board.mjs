@@ -88,6 +88,20 @@ function collectChange(projectRoot, itemId) {
 }
 
 /** 汇总整个工作区（或单仓）的看板状态 —— **对外唯一的状态接口** */
+/**
+ * 多仓工作区支持：工作区根没有 devflow.json（它不是"项目"），只有 devflow.workspace.json。
+ * 若只支持单仓，看板在**最需要它的多仓场景**里直接不可用（实测踩到）。
+ */
+export function workspaceMembers(root) {
+  const f = path.join(root, 'devflow.workspace.json');
+  if (!existsSync(f)) return null;
+  try {
+    const d = JSON.parse(readFileSync(f, 'utf8'));
+    const members = (d.members || []).map((m) => ({ name: m.name || m.repo || m.path, dir: path.join(root, m.path || m.name || m.repo) }));
+    return { name: d.workspace?.name || path.basename(root), members };
+  } catch { return null; }
+}
+
 export function collectBoardState(projectRoot, opts = {}) {
   const ids = [];
   for (const dir of [localItemsDir(projectRoot), itemsDir(projectRoot)]) {
@@ -98,11 +112,31 @@ export function collectBoardState(projectRoot, opts = {}) {
     } catch { /* 目录不存在 */ }
   }
   const changes = ids.sort().map((id) => collectChange(projectRoot, id));
+  // 多仓工作区：把成员的变更也纳进来（带仓名标注）
+  const ws = workspaceMembers(projectRoot);
+  if (ws) {
+    for (const m of ws.members) {
+      if (!existsSync(m.dir)) continue;
+      for (const id of (() => {
+        const out = [];
+        for (const dir of [localItemsDir(m.dir), itemsDir(m.dir)]) {
+          try { for (const n of readdirSync(dir)) if (!n.startsWith('.')) out.push(n); } catch { /* 无 */ }
+        }
+        return out;
+      })()) {
+        if (changes.some((c) => c.itemId === id && c.repo === m.name)) continue;
+        const c = collectChange(m.dir, id);
+        c.repo = m.name;
+        changes.push(c);
+      }
+    }
+  }
   const stages = ['draft', 'spec_ready', 'contracted', 'implementing', 'tested', 'verified', 'released'];
   return {
     generatedAt: new Date().toISOString(),
-    project: path.basename(projectRoot),
+    project: ws ? `${ws.name}（工作区 · ${ws.members.length} 仓）` : path.basename(projectRoot),
     projectRoot,
+    workspace: ws ? { name: ws.name, members: ws.members.map((m) => m.name) } : null,
     changes,
     stageCounts: stages.map((s) => ({ state: s, count: changes.filter((c) => c.state === s).length })),
     totals: changes.reduce((a, c) => ({

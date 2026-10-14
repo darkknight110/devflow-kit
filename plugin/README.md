@@ -49,13 +49,50 @@ node tools/build.mjs         # → lib/client.js（约 80 KB）
 dsh plugin --profile web add "$PWD"
 ```
 
+## 安装格式（已由真实报错修正）
+
+第一次安装被拒，报错给出了确切要求：
+
+```
+Cannot validate installed package: dsh.bundle.patch must be a file path or a list of file paths
+```
+
+我原先的 `dsh.bundle` 写成对象（错的）。**已照本机已装插件 `dsh-context` 的真实结构修正**：
+
+```jsonc
+"exports": { "./client": "./lib/client.js" },      // 直接给路径字符串
+"dsh": {
+  "bundle": { "patch": "./cordis.patch.yml" },     // 指向补丁文件
+  "client": { "inject": ["@deepseek-ai/dsh-client-ui-conversation",
+                         "@deepseek-ai/dsh-client-ui-layout"], "platform": "web" },
+  "compatibility": { "dshReleases": { "0.1.5-rc.2": "compatible", "0.2.0-rc.2": "compatible" } }
+}
+```
+
+配套的 `cordis.patch.yml`（照 `dsh-context` 的格式）：
+
+```yaml
+- insert:
+    - id: dsh-plugin-devflow
+      name: dsh-plugin-devflow
+```
+
+## 已做的本地验证
+
+| 项 | 结果 |
+|---|---|
+| 宿主入口 `lib/index.js` | ✅ `default` 是函数，模拟 cordis 调用**无异常** |
+| 客户端产物 `lib/client.js` | ✅ 80 KB、合法 ESM、含 `export default` |
+| 注册调用确实在产物里 | ✅ 含 `sidebarRightTabs` 与 `slots.inject` |
+| React 已内联（无 external import） | ✅ |
+
 ## ⚠️ 尚未验证的边界（如实登记）
 
 | # | 未验证项 | 影响 |
 |---|---|---|
-| 1 | **`bundle` 声明的确切格式** | 插件管理器文档提到"**只管理 bundle**：依赖里没有 bundle patch 的会被拒绝安装"。`package.json` 里的 `dsh.bundle` 是我按语义写的，**格式未经验证** —— 若安装被拒，先修这里 |
-| 2 | **端到端加载** | 我没有在真实 DSH 里装过它（见下面「环境的两个限制」），**所以"能在界面里显示"目前是设计推断，不是实测** |
-| 3 | **iframe 是否被 CSP 允许** | DSH 界面里有 126 处 `iframe` 用法，说明机制可用；但**是否允许指向 `http://127.0.0.1:8787` 未验证** |
+| 1 | ~~`bundle` 格式~~ | ✅ **已修正**（见上，来自真实报错 + 本机已装插件对照） |
+| 2 | **端到端加载** | ⚠️ 仍未验证 —— 安装需要 pnpm 在 PATH 上，而本机没有（GUI 内部自带）。**"能在界面里显示"目前仍是设计推断** |
+| 3 | **iframe 是否被 CSP 允许** | DSH 界面里有 `iframe` 用法，机制可用；**是否允许指向 `http://127.0.0.1:8787` 未验证** |
 | 4 | **标签页如何被打开** | 页面型标签（无 `patterns`）**如何进入用户视野**（侧栏 guide？命令？）未验证 |
 
 ## 环境的两个限制（这就是我无法替你验证的原因）
@@ -63,7 +100,7 @@ dsh plugin --profile web add "$PWD"
 | 限制 | 后果 |
 |---|---|
 | **`desktop` profile 被 Electron 应用独占管理** | CLI 不能往里装（`error: profile "desktop" is managed exclusively by the Electron application`）。而你正在用的 GUI 就是 desktop ⇒ **要走 GUI 的「添加插件」** |
-| **`dsh plugin add` 需要 pnpm** | 当前 PATH 上没有 pnpm（`corepack enable pnpm` 可提供） |
+| **`dsh plugin add` 需要 pnpm** | 当前 PATH 上没有 pnpm（GUI 内部自带，所以**GUI 安装可以，命令行不行**）|
 
 ## 建议的下一步（按顺序）
 
@@ -79,3 +116,20 @@ dsh plugin --profile web add "$PWD"
 2. **不新增宿主能力** —— 不注册模型工具、不申请网络/写权限；
 3. **主仓不受影响** —— `plugin/node_modules` 与 `plugin/lib/client.js` 都不入库；
    `scripts/selfcheck.mjs` 不依赖本目录（已验证：插件存在时自检仍 59/59）。
+
+## 分发注意事项（发布前必读）
+
+当前安装方式是 **`link:`（本地软链）**，所以本地构建出的 `lib/client.js` 会被直接用上。
+
+**若将来要发布成 npm 包，必须改掉这一点** —— 因为 `lib/client.js` 目前被 `.gitignore` 排除
+（它是构建产物），直接 `npm publish` 会**缺少客户端半边**，装出来的插件不会显示任何界面。
+届时二选一：
+
+| 做法 | 说明 |
+|---|---|
+| **把 `lib/client.js` 入库** | 最简单；但每次改源码要重新构建并提交产物 |
+| **加 `prepublishOnly` 构建** | 发布前自动构建；需要在 `devDependencies` 里保留 esbuild |
+
+另外 `dsh.compatibility.dshReleases` 目前只声明了两个版本
+（`0.1.5-rc.2` 与本机 GUI 用的 `0.2.0-rc.2`）。**DSH 升级后要补这一项**，
+否则会被判为不兼容而拒绝加载（本机 `dsh-better-sidebar`、`dshmarket` 就是这么被拦下的）。

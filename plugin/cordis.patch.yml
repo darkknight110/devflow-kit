@@ -1,0 +1,6 @@
+# Bundle patch layer（照 dsh-context 的真实格式）：
+# 这一行让 profile 加载本包的 main 入口作为**宿主半边**（普通 Cordis 插件）；
+# package.json 里的 `dsh.client` 声明则让 Web 端加载 ./client 作为**浏览器半边**。
+- insert:
+    - id: dsh-plugin-devflow
+      name: dsh-plugin-devflow

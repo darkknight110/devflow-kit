@@ -1,0 +1,3 @@
+# 构建依赖与产物（隔离在 plugin/ 内，主仓保持零依赖）
+node_modules/
+lib/client.js

@@ -1,0 +1,42 @@
+{
+  "name": "dsh-plugin-devflow",
+  "version": "0.1.0",
+  "private": true,
+  "description": "devflow 看板的 DSH 薄框：在 DSH 右栏/弹窗里内嵌 devflow board（只做窗口，不含任何工作流逻辑）。",
+  "type": "module",
+  "exports": {
+    ".": {
+      "default": "./lib/index.js"
+    },
+    "./client": {
+      "default": "./lib/client.js"
+    },
+    "./package.json": "./package.json"
+  },
+  "files": [
+    "lib",
+    "README.md"
+  ],
+  "dsh": {
+    "client": {
+      "inject": [
+        "@deepseek-ai/dsh-client-ui-conversation",
+        "@deepseek-ai/dsh-client-ui-layout"
+      ],
+      "platform": "web"
+    },
+    "bundle": {
+      "title": "devflow 看板",
+      "description": "把 devflow board 内嵌到 DSH 界面（右栏标签页 + 可弹出的居中窗口）。"
+    }
+  },
+  "peerDependencies": {
+    "@deepseek-ai/cordis": "~4.0.4"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.2"
+  },
+  "dependencies": {
+    "react": "^18.3.1"
+  }
+}

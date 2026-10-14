@@ -1579,11 +1579,16 @@ function sc51() {
   const fetchesKit = /github\.com\/darkknight110\/devflow-kit/.test(gl) && /github\.com\/darkknight110\/devflow-kit/.test(gh);
   // ⑦ GitHub 版同样不得把注释塞进数组（YAML 列表）
   const ghOk = noCommentInList(gh) && /continue-on-error: true/.test(gh) && /gate run 2026-10-14-x/.test(gh);
+  // ⑧ 不得出现「run: 命令  # 注释」这种行内注释（YAML 里值会含糊，实测生成过坏配置）
+  const noInlineComment = !/^\s*run:.*#/m.test(gl + gh);
+  // ⑨ Node 项目必须先装依赖，否则 gate 步骤（npx/npm test）在 CI 上空跑失败
+  const installsDeps = /npm ci|npm install/.test(gh) && /npm ci|npm install/.test(gl);
 
   record('SC51', 'devflow ci 生成的配置结构合法、不硬编码内部名、kit 可从公网获取',
     'GitLab/GitHub 均无「数组项含注释」；GitLab 用块标量；报告 job 不阻断；gate 必过；无内部仓名；含 kit 获取',
-    `gl无注释=${noCommentInList(gl)} gl块标量=${gitlabBlockScalar} 报告不阻断=${reportNonBlocking} gate必过=${gateBlocks} 无内部名=${noInternalName} 可取kit=${fetchesKit} gh=${ghOk}`,
-    noCommentInList(gl) && gitlabBlockScalar && reportNonBlocking && gateBlocks && noInternalName && fetchesKit && ghOk);
+    `gl无注释=${noCommentInList(gl)} gl块标量=${gitlabBlockScalar} 报告不阻断=${reportNonBlocking} gate必过=${gateBlocks} 无内部名=${noInternalName} 可取kit=${fetchesKit} gh=${ghOk} 无行内注释=${noInlineComment} 装依赖=${installsDeps}`,
+    noCommentInList(gl) && gitlabBlockScalar && reportNonBlocking && gateBlocks && noInternalName
+      && fetchesKit && ghOk && noInlineComment && installsDeps);
   rmSync(root, { recursive: true, force: true });
 }
 

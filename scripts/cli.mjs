@@ -1770,7 +1770,19 @@ function cmdSetupHooks(flags, opts = {}) {
 function cmdCi(flags) {
   const { root, loaded } = resolveProject(flags);
   const platform = flags.platform || 'gitlab';
-  const item = flags.item ? String(flags.item) : null;
+  // 变更绑定：显式 --item > 仓库里**唯一**的在办变更 > 不绑定（跳过 gate run）。
+  // 为什么必须这样：刚 clone 的仓里 `.devflow/items/` 可能为空（本地产物未入库），
+  // 此时生成 `gate run <item>` 会必然失败 —— 那不是门禁，那是坏配置。
+  let item = flags.item ? String(flags.item) : null;
+  let itemSource = item ? 'explicit' : null;
+  if (!item) {
+    try {
+      const ids = listItems(root).map((i) => i.itemId);
+      if (ids.length === 1) { item = ids[0]; itemSource = 'single'; }
+      else if (ids.length > 1) { itemSource = 'ambiguous'; }
+      else { itemSource = 'none'; }
+    } catch { itemSource = 'none'; }
+  }
   const strictDoctor = Boolean(flags['strict-doctor']);
   if (!['gitlab', 'github'].includes(platform)) {
     die(`未知平台：${platform}\n  可用：gitlab | github`, 2);
@@ -1789,7 +1801,24 @@ function cmdCi(flags) {
     '[ -x "$DEVFLOW" ] || { echo "找不到 devflow：检查 kit 地址或网络"; exit 2; }',
   ];
   const setupNote = 'devflow 未随仓库分发 —— CI 里按需获取（可用 devflow ci --kit-repo/--kit-path 改成本团队的获取方式）';
-  const GATE = item ? `$DEVFLOW gate run ${item}` : '$DEVFLOW gate run';
+  // 无变更可绑定时，用仓库自己的门禁脚本作为必过步骤（那是这个仓真实的验证入口），
+  // 并明确说明为什么没有绑定变更 —— 不许生成一个必然失败的步骤。
+  const repoGate = (() => {
+    try {
+      const g = (loaded.config?.gates || {});
+      const t = g.test?.run;
+      if (t) return String(t);
+      const b = g.build?.run;
+      return b ? String(b) : null;
+    } catch { return null; }
+  })();
+  // 说明与命令**分行**（不要写成 `run: cmd  # 注释` —— YAML 里行内注释会让值含糊，实测生成过坏配置）
+  const GATE = item
+    ? `$DEVFLOW gate run ${item}`
+    : (repoGate
+      ? `# 未绑定变更：先跑本仓测试门禁（.devflow/items 里没有可绑定的变更）\n${repoGate}`
+      : 'echo "本仓未声明 test 门禁脚本，请在 devflow.json 里配置"');
+  const GATE_BLOCK = GATE.includes('\n');
   // 契约扫描需要**后端仓在工作区内**。单仓 CI 里通常没有 ⇒ 不能无条件跑：
   // 无条件跑会必然失败（找不到后端仓），把报告 job 变成噪音（实测：生成的配置跑不通）。
   // 契约扫描需要工作区内有后端仓。单仓 CI 通常没有 ⇒ 条件执行而不是必然失败。
@@ -1817,6 +1846,10 @@ function cmdCi(flags) {
       'devflow-gate:',
       '  stage: gates',
       '  script:',
+      '    - |',
+      '      if [ -f package.json ]; then',
+      '        if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi',
+      '      fi',
       ...setup.map((l, i) => (i === 0 ? `    - |\n      ${l}` : `      ${l}`)),
       `      ${GATE}`,
       '',
@@ -1853,11 +1886,18 @@ function cmdCi(flags) {
       '      - uses: actions/checkout@v4',
       '      - uses: actions/setup-node@v4',
       '        with: { node-version: "22" }',
+      '      - name: 安装依赖（Node 项目需要；无 package.json 则自动跳过）',
+      '        run: |',
+      '          if [ -f package.json ]; then',
+      '            if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi',
+      '          else',
+      '            echo "非 Node 项目，跳过 npm 安装"',
+      '          fi',
       '      - name: 准备 devflow',
       '        run: |',
       ...setup.map((l) => `          ${l}`),
       '      - name: 门禁（本次变更）',
-      `        run: ${GATE}`,
+      ...(GATE_BLOCK ? ['        run: |', ...GATE.split('\n').map((l) => `          ${l}`)] : [`        run: ${GATE}`]),
       '',
       '  # 报告性质：门禁自身是否可信 + 跨仓契约漂移',
       '  report:',
@@ -1867,6 +1907,13 @@ function cmdCi(flags) {
       '      - uses: actions/checkout@v4',
       '      - uses: actions/setup-node@v4',
       '        with: { node-version: "22" }',
+      '      - name: 安装依赖（Node 项目需要；无 package.json 则自动跳过）',
+      '        run: |',
+      '          if [ -f package.json ]; then',
+      '            if [ -f package-lock.json ]; then npm ci; else npm install --no-audit --no-fund; fi',
+      '          else',
+      '            echo "非 Node 项目，跳过 npm 安装"',
+      '          fi',
       '      - name: 准备 devflow',
       '        run: |',
       ...setup.map((l) => `          ${l}`),
@@ -1892,7 +1939,11 @@ function cmdCi(flags) {
     ...content.split('\n').map((l) => `    ${l}`),
     '',
     '  分工：`gate run` 必过（本次变更）；`doctor` 与契约扫描默认不阻断（配置债务与跨仓漂移）。',
-    item ? '' : '  提示：未指定 --item，门禁步骤未绑定具体变更；可用 `devflow ci --item <变更>` 生成。',
+    item ? `  已绑定变更：${item}（来源：${itemSource === 'explicit' ? '--item' : '仓库内唯一在办变更'}）`
+      : (itemSource === 'ambiguous'
+        ? '  注意：仓库内有多个在办变更，未自动绑定 —— 请用 `devflow ci --item <变更>` 明确指定'
+        : '  注意：仓库内没有在办变更（或未入库），门禁步骤改为跑本仓测试脚本；'
+          + '需要绑定变更时用 `devflow ci --item <变更>`'),
     strictDoctor ? '  注意：--strict-doctor 已开启，doctor 失败会阻断（要求门禁配置零债务）。' : '',
     '  提示：git 钩子只在本地生效，clone 后需重装（`devflow setup-hooks`）。',
   ].filter((x) => x !== '');

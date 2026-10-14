@@ -1584,15 +1584,18 @@ function sc51() {
   const noInlineComment = !/^\s*run:.*#/m.test(gl + gh);
   // ⑨ Node 项目必须先装依赖，否则 gate 步骤（npx/npm test）在 CI 上空跑失败
   const installsDeps = /npm ci|npm install/.test(gh) && /npm ci|npm install/.test(gl);
+  // ⑩.5 人工确认点必须进 CI 的**报告** job（不阻断）：让"谁还没签"可见，
+  //      但不能把"人还没签"变成红灯（否则团队会关掉检查，比没有检查更糟）。
+  const hasReviewReport = /review --all/.test(gh) && /review --all/.test(gl);
   // ⑩ GitHub 每个 step 是独立 shell ⇒ 必须写 GITHUB_ENV/GITHUB_PATH，
   //    否则 `export DEVFLOW=` 不会跨 step 存活（实测：doctor: command not found）
   const persistsEnv = /GITHUB_ENV/.test(gh) && /GITHUB_PATH/.test(gh);
 
   record('SC51', 'devflow ci 生成的配置结构合法、不硬编码内部名、kit 可从公网获取',
     'GitLab/GitHub 均无「数组项含注释」；GitLab 用块标量；报告 job 不阻断；gate 必过；无内部仓名；含 kit 获取',
-    `gl无注释=${noCommentInList(gl)} gl块标量=${gitlabBlockScalar} 报告不阻断=${reportNonBlocking} gate必过=${gateBlocks} 无内部名=${noInternalName} 可取kit=${fetchesKit} gh=${ghOk} 无行内注释=${noInlineComment} 装依赖=${installsDeps} 跨step持久=${persistsEnv}`,
+    `gl无注释=${noCommentInList(gl)} gl块标量=${gitlabBlockScalar} 报告不阻断=${reportNonBlocking} gate必过=${gateBlocks} 无内部名=${noInternalName} 可取kit=${fetchesKit} gh=${ghOk} 无行内注释=${noInlineComment} 装依赖=${installsDeps} 跨step持久=${persistsEnv} 确认点在CI=${hasReviewReport}`,
     noCommentInList(gl) && gitlabBlockScalar && reportNonBlocking && gateBlocks && noInternalName
-      && fetchesKit && ghOk && noInlineComment && installsDeps && persistsEnv);
+      && fetchesKit && ghOk && noInlineComment && installsDeps && persistsEnv && hasReviewReport);
   rmSync(root, { recursive: true, force: true });
 }
 

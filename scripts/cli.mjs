@@ -1474,8 +1474,69 @@ function buildReviewPack(root, itemId, point, flags) {
   return reviewPack({ itemId, point, spec, tasks, verification, contract, approvals });
 }
 
+/**
+ * 解析"项目根或工作区根"。
+ * 为什么需要：工作区根没有 devflow.json（它不是"项目"），但看板/review 都要在那里能跑。
+ * 抽成一处，避免每个命令各写一份回退（曾重复两次，属于"多份实现"）。
+ */
+function resolveProjectOrWorkspace(flags) {
+  let root = null; let loaded = { config: {} };
+  ({ root, loaded } = resolveProject(flags, { quiet: true }));
+  if (!root || !existsSync(root)) {
+    const wsFile = path.join(process.cwd(), 'devflow.workspace.json');
+    if (existsSync(wsFile)) { root = process.cwd(); loaded = { config: {} }; }
+  }
+  return { root: root && existsSync(root) ? root : null, loaded };
+}
+
 function cmdReview(flags, positional) {
-  const { root } = resolveProject(flags);
+  const { root } = resolveProjectOrWorkspace(flags);
+  if (!root) {
+    die('既不是 devflow 项目，也不是多仓工作区。\n'
+      + '  · 项目：先 devflow init\n  · 工作区：在根目录 devflow workspace init', 2);
+  }
+
+  // --all：一次报告**所有变更**的确认点状态（CI 用）。默认不阻断。
+  // 为什么默认不阻断：把"人还没签字"变成红灯，团队会去关掉这个检查 ——
+  // 那比没有检查更糟。它应当**如实报告**，由人决定。
+  if (flags.all) {
+    // 复用看板的状态汇总：这样"单仓"与"多仓工作区"只有**一份**收集逻辑。
+    const st = collectBoardState(root);
+    if (!st.changes.length) { out(flags, '  （没有在办变更）'); return; }
+    const rows = [];
+    let blockedTotal = 0;
+    for (const c of st.changes) {
+      const ap = c.approvals || [];
+      const missing = ap.filter((a) => !a.done);
+      if (missing.length) blockedTotal += 1;
+      rows.push({
+        id: c.repo ? `${c.itemId}［${c.repo}］` : c.itemId,
+        tier: c.tier, state: c.state,
+        done: ap.filter((a) => a.done).length, total: ap.length,
+        missing: missing.map((m) => m.name),
+        who: ap.filter((a) => a.done).map((a) => `${a.name}(${a.who || '?'})`),
+      });
+    }
+    const lines = [
+      `${paint('devflow review --all', 'bold')}　人工确认点状态（共 ${rows.length} 个变更）`,
+      '',
+    ];
+    for (const r of rows) {
+      const mark = r.missing.length === 0 ? paint('✓', 'green') : paint('—', 'yellow');
+      lines.push(`  ${mark} ${r.id}　${r.state}　确认 ${r.done}/${r.total}`);
+      if (r.who.length) lines.push(`      已签：${r.who.join('、')}`);
+      if (r.missing.length) lines.push(`      ${paint('待签：' + r.missing.join('、'), 'yellow')}`);
+    }
+    lines.push('');
+    lines.push(`  合计：${rows.length - blockedTotal} 个已签齐，${blockedTotal} 个仍有待签项`);
+    if (blockedTotal) {
+      lines.push('  提示：人工确认点需要**真人**签核（agent 不得代填）；查看某个确认点的决策材料：');
+      lines.push('        devflow review <变更> --point <确认点>');
+    }
+    out(flags, lines.join('\n'), { changes: rows.length, pending: blockedTotal, rows });
+    return;
+  }
+
   const itemId = flags.item ? String(flags.item) : pickItem(root, positional, flags);
   if (!itemId) die('用法：devflow review <变更> --point <确认点> [--by <真人> --verdict 通过|驳回]', 2);
   const dir = machineDir(root, itemId) || path.join(itemsDir(root), itemId);
@@ -1560,15 +1621,9 @@ function cmdReview(flags, positional) {
 }
 
 function cmdBoard(flags) {
-  let root; let loaded = { config: {} };
-  // 工作区根没有 devflow.json（它不是"项目"）⇒ 也要能用看板。
-  // 判据：有 devflow.json 走项目；否则有 devflow.workspace.json 走工作区。
-  ({ root, loaded } = resolveProject(flags, { quiet: true }));
-  if (!root || !existsSync(root)) {
-    const wsFile = path.join(process.cwd(), 'devflow.workspace.json');
-    if (existsSync(wsFile)) { root = process.cwd(); loaded = { config: {} }; }
-  }
-  if (!root || !existsSync(root)) {
+  // 工作区根没有 devflow.json（它不是"项目"）⇒ 看板在那里也要能用。
+  const { root, loaded } = resolveProjectOrWorkspace(flags);
+  if (!root) {
     die('既不是 devflow 项目，也不是多仓工作区。\n'
       + '  · 项目：先 devflow init\n  · 工作区：在根目录 devflow workspace init', 2);
   }
@@ -2323,6 +2378,7 @@ function cmdCi(flags) {
       '  stage: report',
       '  script:',
       ...setup.map((l, i) => (i === 0 ? `    - |\n      ${l}` : `      ${l}`)),
+      '      $DEVFLOW review --all',
       '      $DEVFLOW doctor',
       `  allow_failure: ${strictDoctor ? 'false' : 'true'}`,
       '',
@@ -2382,6 +2438,8 @@ function cmdCi(flags) {
       '      - name: 准备 devflow',
       '        run: |',
       ...setupGh.map((l) => `          ${l}`),
+      '      - name: 人工确认点状态（如实报告，不阻断）',
+      '        run: $DEVFLOW review --all',
       '      - name: 体检（门禁自身是否可信）',
       '        run: $DEVFLOW doctor',
       '      - name: 跨仓契约漂移',

@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# devflow 入口：转发到 scripts/cli.mjs（0 依赖，仅需 node）
+#
+# 必须解软链：调用方可能是 `ln -s .../devflow /usr/local/bin/devflow`（npm 全局安装即是此形态），
+# 此时 BASH_SOURCE 指到软链所在目录 ⇒ 会去找 <软链目录>/../scripts/cli.mjs 而报
+# "Cannot find module"。实测踩到过。因此优先用 readlink/realpath 解析真实路径。
+set -euo pipefail
+SRC="${BASH_SOURCE[0]}"
+# 逐级解软链（readlink -f 在部分平台不可用，故做可移植实现）
+while [ -L "$SRC" ]; do
+  DIR="$(cd -P "$(dirname "$SRC")" && pwd)"
+  SRC="$(readlink "$SRC")"
+  case "$SRC" in /*) ;; *) SRC="$DIR/$SRC" ;; esac
+done
+HERE="$(cd -P "$(dirname "$SRC")" && pwd)"
+exec node "$HERE/../scripts/cli.mjs" "$@"

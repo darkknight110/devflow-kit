@@ -1,0 +1,156 @@
+{
+  "$comment": "技术栈适配器：把各栈的构建/测试输出形态翻译成统一的门禁声明。适配器只提供模板与默认值，真正的命令由项目自己维护。",
+  "version": "1.5.0",
+  "adapters": {
+    "java-maven": {
+      "name": "Java · Maven",
+      "markers": [
+        "pom.xml"
+      ],
+      "build": {
+        "run": "./scripts/build.sh",
+        "command": "mvn -B -ntp clean package -DskipTests",
+        "negative_control": "./scripts/build-should-fail.sh"
+      },
+      "test": {
+        "run": "./scripts/test.sh",
+        "command": "mvn -B -ntp test",
+        "count_regex": "Tests run:\\s*(\\d+),\\s*Failures",
+        "require_min_tests": 1,
+        "negative_control": "./scripts/test-should-fail.sh"
+      },
+      "sample_output": "[INFO] Running com.example.OrderServiceTest\n[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0\n[INFO] BUILD SUCCESS",
+      "unknown_output_hint": "Maven 未运行测试时输出 \"No tests to run\" 或 \"Tests are skipped\" —— 此时计数抓不到，引擎会标「证据未知」，请确认真的跑了测试",
+      "scripts": {
+        "build.sh": "#!/usr/bin/env bash\n# devflow:adapter java-maven\nset -euo pipefail\n# 优先使用仓库自带的 Maven Wrapper（尊重既有约定，也避免依赖全局 mvn）\nif [ -x ./mvnw ]; then MVN=./mvnw; else MVN=\"${MVN:-mvn}\"; fi\nexec \"$MVN\" -B -ntp clean package -DskipTests\n",
+        "build-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter java-maven 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"java-maven: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n",
+        "test.sh": "#!/usr/bin/env bash\n# devflow:adapter java-maven\nset -euo pipefail\nif [ -x ./mvnw ]; then MVN=./mvnw; else MVN=\"${MVN:-mvn}\"; fi\n# 直接透传 Maven 输出：surefire 的 \"Tests run: N, Failures: F\" 会被 count_regex 抓到\n# 注意：多测试类时会出现多行，引擎会把它们**累加**（见 docs/03 的计数说明）\nexec \"$MVN\" -B -ntp test\n",
+        "test-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter java-maven 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"java-maven: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n"
+      },
+      "demo": {
+        "build": "./scripts/build.sh",
+        "test": "./scripts/test.sh",
+        "scripts": {
+          "build.sh": "#!/usr/bin/env bash\n# devflow:adapter java-maven:demo\nset -euo pipefail\nif [ ! -d src/main/java ]; then echo \"[ERROR] COMPILATION ERROR: missing src/main/java\" >&2; exit 1; fi\necho \"[INFO] BUILD SUCCESS\"\n",
+          "test.sh": "#!/usr/bin/env bash\n# devflow:adapter java-maven:demo\nset -euo pipefail\nif [ ! -d src ]; then echo \"[ERROR] no tests to run: missing src\" >&2; exit 1; fi\necho \"[INFO] Running com.example.OrderServiceTest\"\necho \"[INFO] Tests run: 12, Failures: 0, Errors: 0, Skipped: 0\"\necho \"[INFO] BUILD SUCCESS\"\n",
+          "build-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter java-maven 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"java-maven: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n",
+          "test-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter java-maven 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"java-maven: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n"
+        }
+      }
+    },
+    "node-jest": {
+      "name": "Node · Jest / Vitest",
+      "markers": [
+        "package.json"
+      ],
+      "build": {
+        "run": "./scripts/build.sh",
+        "command": "npm run build",
+        "negative_control": "./scripts/build-should-fail.sh"
+      },
+      "test": {
+        "run": "./scripts/test.sh",
+        "command": "npm test",
+        "count_regex": "Tests:?\\s*(\\d+)\\s+passed",
+        "require_min_tests": 1,
+        "negative_control": "./scripts/test-should-fail.sh"
+      },
+      "sample_output": "PASS src/order.test.ts\nTests:       12 passed, 12 total",
+      "unknown_output_hint": "Jest 无测试文件时输出 \"No tests found\"，计数抓不到；Vitest 用 \"Tests  12 passed\"（中间可能是空格而非冒号），必要时把 count_regex 调成 \"Tests\\\\s*:?\\\\s*(\\d+) passed\"",
+      "scripts": {
+        "build-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter node-jest 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"node-jest: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n",
+        "test-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter node-jest 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"node-jest: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n",
+        "build.sh": "#!/usr/bin/env bash\n# devflow:adapter node-jest\n# 依次尝试常见的构建脚本名；都找不到就明确失败（不许静默空转）\nset -euo pipefail\nfor s in build \"build:weapp\" \"build:h5\" \"build:prod\"; do\n  if node -e \"const p=require('./package.json');process.exit(p.scripts&&p.scripts['$s']?0:1)\" 2>/dev/null; then\n    echo \"[devflow] 使用构建脚本：npm run $s\"\n    exec npm run \"$s\"\n  fi\ndone\necho \"[devflow] 找不到任何已知构建脚本（build / build:weapp / build:h5 / build:prod）—— 请改成你项目的真实构建命令\" >&2\nexit 1\n",
+        "test.sh": "#!/usr/bin/env bash\n# devflow:adapter node-jest\n# 直接透传测试框架输出：Jest/Vitest 的 \"Tests: N passed\" 会被 count_regex 抓到\nset -euo pipefail\nexec npm test --silent\n"
+      },
+      "demo": {
+        "build": "./scripts/build.sh",
+        "test": "./scripts/test.sh",
+        "scripts": {
+          "build.sh": "#!/usr/bin/env bash\n# devflow:adapter node-jest:demo\nset -euo pipefail\nif [ ! -d src ]; then echo \"build failed: missing src\" >&2; exit 1; fi\necho \"build ok\"\n",
+          "test.sh": "#!/usr/bin/env bash\n# devflow:adapter node-jest:demo\nset -euo pipefail\nif [ ! -d src ]; then echo \"No tests found\" >&2; exit 1; fi\necho \"PASS src/order.test.ts\"\necho \"Tests:       12 passed, 12 total\"\n",
+          "build-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter node-jest 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"node-jest: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n",
+          "test-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter node-jest 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"node-jest: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n"
+        }
+      }
+    },
+    "python-pytest": {
+      "name": "Python · pytest",
+      "markers": [
+        "pyproject.toml",
+        "setup.py",
+        "setup.cfg",
+        "requirements.txt",
+        "tests"
+      ],
+      "build": {
+        "run": "./scripts/build.sh",
+        "command": "python3 -m compileall -q src",
+        "negative_control": "./scripts/build-should-fail.sh"
+      },
+      "test": {
+        "run": "./scripts/test.sh",
+        "command": "python3 -m pytest -q",
+        "count_regex": "(\\d+)\\s+passed",
+        "require_min_tests": 1,
+        "negative_control": "./scripts/test-should-fail.sh"
+      },
+      "sample_output": "==================== test session starts ====================\ncollected 12 items\n\n............                                              [100%]\n\n12 passed in 0.42s",
+      "unknown_output_hint": "没有测试时 pytest 输出 \"no tests ran\" 且退出码为 5（非零），门禁会判失败；这是刻意的",
+      "scripts": {
+        "build-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter python-pytest 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"python-pytest: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n",
+        "test-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter python-pytest 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"python-pytest: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n",
+        "build.sh": "#!/usr/bin/env bash\n# devflow:adapter python-pytest\nset -euo pipefail\nif [ -d src ]; then\n  exec python3 -m compileall -q src\nfi\necho \"no src/ — nothing to compile\"\n",
+        "test.sh": "#!/usr/bin/env bash\n# devflow:adapter python-pytest\n# pytest 的 \"N passed\" 会被 count_regex 抓到；注意：没有测试时 pytest 退出码为 5（非零），门禁会判失败\nset -euo pipefail\nexec python3 -m pytest -q\n"
+      },
+      "demo": {
+        "build": "./scripts/build.sh",
+        "test": "./scripts/test.sh",
+        "scripts": {
+          "build.sh": "#!/usr/bin/env bash\n# devflow:adapter python-pytest:demo\nset -euo pipefail\nif [ ! -d src ]; then echo \"compileall failed: missing src\" >&2; exit 1; fi\npython3 -c 'import sys; sys.exit(0)'\necho \"compileall ok\"\n",
+          "test.sh": "#!/usr/bin/env bash\n# devflow:adapter python-pytest:demo\nset -euo pipefail\nif [ ! -d tests ]; then echo \"no tests ran\" >&2; exit 5; fi\necho \"==================== test session starts ====================\"\necho \"12 passed in 0.42s\"\n",
+          "build-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter python-pytest 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"python-pytest: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n",
+          "test-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter python-pytest 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"python-pytest: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n"
+        }
+      }
+    },
+    "go-test": {
+      "name": "Go · go test",
+      "markers": [
+        "go.mod"
+      ],
+      "build": {
+        "run": "./scripts/build.sh",
+        "command": "go build ./...",
+        "negative_control": "./scripts/build-should-fail.sh"
+      },
+      "test": {
+        "run": "./scripts/test.sh",
+        "command": "go test ./...",
+        "count_regex": "(\\d+)\\s+tests?\\s+passed",
+        "require_min_tests": 1,
+        "negative_control": "./scripts/test-should-fail.sh",
+        "note": "Go 原生输出是 \"ok  pkg  0.003s\"，**不含测试条数**。要拿到计数需加 -v 并自行汇总；本适配器提供 scripts/test.sh 模板用 awk 汇总 ---- PASS 行数。"
+      },
+      "sample_output": "=== RUN   TestOrderExport\n--- PASS: TestOrderExport (0.00s)\nPASS\nok  \texample.com/order\t0.003s",
+      "unknown_output_hint": "Go 不加 -v 时输出里没有测试条数，count_regex 抓不到；请使用适配器提供的 scripts/test.sh（它用 -v + awk 汇总 \"12 tests passed\"）",
+      "scripts": {
+        "test.sh": "#!/usr/bin/env bash\n# devflow:adapter go-test\n# Go 原生输出不含测试条数，这里用 -v 汇总 \"--- PASS\" 行数，产出 count_regex 能抓到的形态\nset -euo pipefail\nout=\"$(go test -v ./... 2>&1)\"\nprintf '%s\\n' \"$out\"\npassed=$(printf '%s\\n' \"$out\" | grep -c '^--- PASS' || true)\nprintf '%s tests passed\\n' \"$passed\"\n",
+        "build-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter go-test 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"go-test: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n",
+        "test-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter go-test 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"go-test: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n",
+        "build.sh": "#!/usr/bin/env bash\n# devflow:adapter go-test\nset -euo pipefail\nexec go build ./...\n"
+      },
+      "demo": {
+        "build": "./scripts/build.sh",
+        "test": "./scripts/test.sh",
+        "scripts": {
+          "build.sh": "#!/usr/bin/env bash\n# devflow:adapter go-test:demo\nset -euo pipefail\nif [ ! -d .git ] && [ ! -f go.mod ]; then echo \"go: no go.mod\" >&2; exit 1; fi\necho \"go build ok\"\n",
+          "test.sh": "#!/usr/bin/env bash\n# devflow:adapter go-test:demo\nset -euo pipefail\nif [ ! -d . ]; then exit 1; fi\necho \"=== RUN   TestOrderExport\"\necho \"--- PASS: TestOrderExport (0.00s)\"\nprintf '%s tests passed\\n' 12\n",
+          "build-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter go-test 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"go-test: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n",
+          "test-should-fail.sh": "#!/usr/bin/env bash\n# devflow:adapter go-test 负向对照 —— 必须非零退出**且输出失败证据**。\n# 为何要输出证据：门禁（含体检的 D2b）要求\"退出码非零 + 输出含 FAIL/AssertionError/失败计数\"，\n# 只写 `exit 1` 会被判为疑似空转（无法区分\"真失败\"与\"命令根本没跑起来\"）。\nset -euo pipefail\necho \"go-test: negative control failure (expected)\" >&2\necho \"AssertionError: negative control must fail by design\" >&2\nexit 1\n"
+        }
+      }
+    }
+  },
+  "$schemaVersion": "1.5.0"
+}

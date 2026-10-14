@@ -1,0 +1,47 @@
+{
+  "name": "devflow-kit",
+  "version": "1.5.0",
+  "description": "零依赖研发工作流：把「讨论需求 → 分派任务（前端/后端/数据库）→ 实现 → 测试 → 发布」跑成一条可机械验证的路径。",
+  "keywords": [
+    "workflow",
+    "devflow",
+    "quality-gate",
+    "spec-driven",
+    "agent"
+  ],
+  "license": "MIT",
+  "bin": {
+    "devflow": "bin/devflow"
+  },
+  "files": [
+    "bin",
+    "scripts",
+    "spec",
+    "templates",
+    "tools",
+    "docs",
+    "skill",
+    "examples",
+    "VERSION",
+    "LICENSE",
+    "README.md"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "selfcheck": "node scripts/selfcheck.mjs",
+    "verify": "bash examples/verify-all.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/darkknight110/devflow-kit.git"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "bugs": {
+    "url": "https://github.com/darkknight110/devflow-kit/issues"
+  },
+  "homepage": "https://github.com/darkknight110/devflow-kit#readme"
+}

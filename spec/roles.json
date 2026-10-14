@@ -1,0 +1,173 @@
+{
+  "$comment": "角色与权限矩阵正典。约束分两类：enforcement=machine（引擎机械强制，见 doctor/D12）与 enforcement=convention（工具无法强制，依靠执行者自觉，产品不对其做任何『通过』暗示）。详见 docs/04-standards.md 第五节。",
+  "version": "1.5.0",
+  "roles": {
+    "orchestrator": {
+      "name": "编排者",
+      "context": "主会话",
+      "duties": [
+        "需求澄清",
+        "拆解",
+        "调度",
+        "维护变更目录",
+        "独占全部人工确认点",
+        "独占契约文件写入"
+      ],
+      "write": [
+        ".devflow/**",
+        "devflow.json",
+        "docs/**",
+        "spec/**",
+        "templates/**"
+      ],
+      "forbidden": [
+        "写业务代码",
+        "未确认即推进状态"
+      ],
+      "mustNotAsk": false
+    },
+    "implementer": {
+      "name": "实现者",
+      "context": "独立子代理（每个写入范围一个）",
+      "duties": [
+        "在单个仓库内按任务清单实现",
+        "先写失败测试再写代码",
+        "产出实现报告"
+      ],
+      "write": [
+        "仅自己任务声明的写入范围"
+      ],
+      "forbidden": [
+        "跨仓修改",
+        "修改契约文件",
+        "擅自重构无关代码",
+        "修改被验证物"
+      ],
+      "mustNotAsk": true
+    },
+    "verifier": {
+      "name": "验证者",
+      "context": "独立子代理，强制隔离，不复用实现会话上下文",
+      "duties": [
+        "独立复核",
+        "逐条比对验收标准与证据",
+        "给出三态结论与文件:行号证据"
+      ],
+      "write": [
+        "仅变更目录内的验证记录"
+      ],
+      "forbidden": [
+        "修改被验证的代码",
+        "发起发布",
+        "复用实现会话上下文"
+      ],
+      "mustNotAsk": true
+    },
+    "requester": {
+      "name": "需求方",
+      "context": "人",
+      "duties": [
+        "提出需求",
+        "确认真伪与优先级"
+      ],
+      "write": [],
+      "forbidden": [],
+      "mustNotAsk": false
+    },
+    "approver": {
+      "name": "契约与发布批准",
+      "context": "人",
+      "duties": [
+        "冻结契约",
+        "批准发布",
+        "确认需求判据"
+      ],
+      "write": [
+        "变更目录内的确认记录"
+      ],
+      "forbidden": [
+        "跳过确认点"
+      ],
+      "mustNotAsk": false
+    }
+  },
+  "constraints": [
+    {
+      "id": "R1",
+      "rule": "一个子代理 = 一个写入范围；任意两个子代理的读写文件集合不得相交",
+      "enforcedBy": "engine:doctor/D12",
+      "enforcement": "machine",
+      "enforcementNote": "D12（doctor）：读 TASKS.md 的「写入范围」列，用路径前缀判定相交"
+    },
+    {
+      "id": "R2",
+      "rule": "契约文件只有编排者可改；子代理只使用冻结快照",
+      "enforcedBy": "orchestrator",
+      "enforcement": "convention",
+      "enforcementNote": "引擎无法区分编排者与执行者的写入（同一账户/工作树，文件系统层面无身份）"
+    },
+    {
+      "id": "R3",
+      "rule": "同仓多模块可并行，但必须各自使用独立工作树与独立分支",
+      "enforcedBy": "orchestrator",
+      "enforcement": "convention",
+      "enforcementNote": "devflow 运行在单仓目录内，看不到工作树是如何创建的"
+    },
+    {
+      "id": "R4",
+      "rule": "验证者必须来自独立上下文；单人场景下必须新开会话",
+      "enforcedBy": "orchestrator",
+      "enforcement": "convention",
+      "enforcementNote": "引擎只能校验留痕（G1b + STD-EVIDENCE-INDEPENDENT-REVIEW），无法证明复核者真的换了上下文"
+    },
+    {
+      "id": "R5",
+      "rule": "子代理无法向用户提问：所有确认点只能发生在编排者层",
+      "enforcedBy": "platform",
+      "enforcement": "convention",
+      "enforcementNote": "取决于平台是否允许执行者向用户提问，不属工作流引擎能力范围"
+    },
+    {
+      "id": "R6",
+      "rule": "分组按写入范围的文件集合是否相交计算，不得凭感觉切分",
+      "enforcedBy": "engine:doctor/D12",
+      "enforcement": "machine",
+      "enforcementNote": "D12（doctor）：相交计算必须基于文件集合，引擎按路径前缀做保守判定"
+    }
+  ],
+  "approvalPoints": [
+    {
+      "id": "AP1",
+      "name": "需求与判据",
+      "when": "SPEC 完成",
+      "tierRequired": [
+        "light",
+        "standard",
+        "heavy"
+      ],
+      "record": "APPROVALS.md"
+    },
+    {
+      "id": "AP2",
+      "name": "契约冻结",
+      "when": "涉及跨边界变更",
+      "tierRequired": [
+        "standard",
+        "heavy"
+      ],
+      "record": "APPROVALS.md"
+    },
+    {
+      "id": "AP3",
+      "name": "发布批准",
+      "when": "发布前",
+      "tierRequired": [
+        "light",
+        "standard",
+        "heavy"
+      ],
+      "record": "APPROVALS.md"
+    }
+  ],
+  "$schemaVersion": "1.5.0"
+}

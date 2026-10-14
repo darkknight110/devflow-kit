@@ -1,0 +1,290 @@
+{
+  "$comment": "门禁定义正典。引擎按此执行；每类门禁的证据形态、通过条件与是否阻断在此集中定义，不在代码里散落。",
+  "version": "1.5.0",
+  "levels": {
+    "block": "阻断：不通过则不允许进入下一状态",
+    "label": "标签：不阻断，但结果必须标记为未验证通过（⚠），不得显示为通过（✓）"
+  },
+  "verdicts": {
+    "pass": {
+      "symbol": "✓",
+      "color": "green",
+      "label": "通过",
+      "score": 3
+    },
+    "unverified": {
+      "symbol": "⚠",
+      "color": "yellow",
+      "label": "未验证通过",
+      "score": 2
+    },
+    "exempt": {
+      "symbol": "■",
+      "color": "yellow",
+      "label": "基线豁免",
+      "score": 2
+    },
+    "fail": {
+      "symbol": "✗",
+      "color": "red",
+      "label": "失败",
+      "score": 0
+    },
+    "blocked": {
+      "symbol": "⛔",
+      "color": "darkred",
+      "label": "阻断",
+      "score": 0
+    },
+    "pending": {
+      "symbol": "○",
+      "color": "gray",
+      "label": "未运行",
+      "score": 1
+    },
+    "stale": {
+      "symbol": "⏸",
+      "color": "orange",
+      "label": "停滞",
+      "score": 1
+    }
+  },
+  "gates": {
+    "G0": {
+      "name": "项目配置有效",
+      "type": "preflight",
+      "level": "block",
+      "checks": [
+        "projectConfigExists",
+        "validJson",
+        "hasDevflowBlock",
+        "kitVersionSatisfied",
+        "gatesDeclared"
+      ],
+      "evidence": [
+        "configPath",
+        "resolvedRoot",
+        "kitVersion",
+        "declaredGates"
+      ],
+      "description": "项目配置文件存在、是合法 JSON、含 devflow 块、kit 版本满足约束、至少声明一个门禁"
+    },
+    "G1": {
+      "name": "产物齐备",
+      "type": "artifacts",
+      "level": "block",
+      "checks": [
+        "stateRequiredArtifactsExist",
+        "tierRequiredArtifactsExist",
+        "requiredSectionsPresent",
+        "requiredTableColumnsPresent",
+        "requiredKeyValuePresent"
+      ],
+      "evidence": [
+        "state",
+        "tier",
+        "present",
+        "missing",
+        "sectionErrors"
+      ],
+      "description": "当前状态、档位、规模档三方所需的产物都必须存在且结构合规"
+    },
+    "G2": {
+      "name": "证据形态",
+      "type": "evidence",
+      "level": "block",
+      "checks": [
+        "everyGateHasCommand",
+        "everyGateHasExitCode",
+        "everyGateHasOutputTail"
+      ],
+      "evidence": [
+        "records"
+      ],
+      "description": "每条门禁结果含命令原文、退出码、输出尾部；缺失即阻断"
+    },
+    "G3": {
+      "name": "负向对照",
+      "type": "negativeControl",
+      "level": "label",
+      "behavior": "label",
+      "checks": [
+        "declaredControlReturnsNonZero"
+      ],
+      "evidence": [
+        "project",
+        "gate",
+        "controlCommand",
+        "controlExitCode",
+        "controlOutputTail",
+        "verifyExitCode"
+      ],
+      "description": "项目为门禁声明的必定失败命令必须返回非零。未声明或返回零 ⇒ 该门禁记「未验证通过」（⚠）。label 为默认；strict 可设为 block",
+      "strictBehavior": "block"
+    },
+    "G4": {
+      "name": "上下文预算",
+      "type": "budget",
+      "level": "block",
+      "warnKb": 120,
+      "blockKb": 250,
+      "$comment": "单位为千字符（KB of chars）。不依赖分词器，保证零依赖；阈值仅作量级参考。",
+      "checks": [
+        "itemArtifactsUnderWarn",
+        "itemArtifactsUnderBlock",
+        "instructionChainUnderLimit"
+      ],
+      "instructionChainLimitKb": 64,
+      "evidence": [
+        "itemKb",
+        "itemLimitKb",
+        "largestFiles",
+        "instructionChainKb",
+        "instructionChainLimitKb"
+      ],
+      "description": "单个变更产物体积超过警告线提示、超过阻断线阻断并要求拆分"
+    },
+    "G5": {
+      "name": "状态一致",
+      "type": "consistency",
+      "level": "block",
+      "checks": [
+        "stateFileMatchesStatusJson",
+        "gateRecordsMatchStateRequirements",
+        "noUnknownState"
+      ],
+      "evidence": [
+        "stateFile",
+        "statusState",
+        "lastRun"
+      ],
+      "description": "STATE、STATUS.json 与实际产物三者一致；出现未定义状态直接报错退出"
+    },
+    "G6": {
+      "name": "基线豁免合规",
+      "type": "exemption",
+      "level": "block",
+      "checks": [
+        "exemptionDeclared",
+        "exemptionNotUsedForBigChange",
+        "noExemptionForNewProject",
+        "exemptionHasClearCondition"
+      ],
+      "evidence": [
+        "exemptions",
+        "clearConditions"
+      ],
+      "description": "豁免必须显式登记并注明清除条件；结果显示为豁免（不显示为通过）；触碰契约或接口的变更不得引用豁免；新建项目禁止豁免"
+    },
+    "G7": {
+      "name": "变更面与档位匹配",
+      "type": "heuristic",
+      "level": "label",
+      "checks": [
+        "tierMatchesChangeSurface"
+      ],
+      "evidence": [
+        "tier",
+        "changeSurface",
+        "inspectedPaths",
+        "signals"
+      ],
+      "surfaceSignals": {
+        "contract": [
+          "**/CONTRACT.md",
+          "**/openapi*.{yaml,yml,json}",
+          "**/*.proto",
+          "**/api-docs/**"
+        ],
+        "interface": [
+          "**/dto/**",
+          "**/vo/**",
+          "**/types/**",
+          "**/interfaces/**",
+          "**/*.d.ts",
+          "**/routes/**",
+          "**/migrations/**"
+        ]
+      },
+      "rules": [
+        {
+          "when": "tier == light or tier == micro",
+          "ifSurfaceIn": [
+            "contract",
+            "interface"
+          ],
+          "verdict": "unverified",
+          "message": "轻档/微档却触碰了契约或接口面，需人工确认是否应升档"
+        }
+      ],
+      "$comment": "启发式：存在漏报，不得当作硬保证。仅做提示与留痕。",
+      "description": "对比档位与实际变更面；不一致时提示人工确认（明示会漏报）"
+    }
+  },
+  "evidence": {
+    "$comment": "证据形态契约：每条门禁结果的必填字段。",
+    "requiredFields": [
+      "gate",
+      "project",
+      "command",
+      "exitCode",
+      "outputTail",
+      "startedAt",
+      "durationMs",
+      "verdict"
+    ],
+    "outputTailLines": 12,
+    "outputTailMaxChars": 2000,
+    "forbid": [
+      "用管道退出码判断结论",
+      "只写结论不写证据",
+      "把未验证写成已验证"
+    ]
+  },
+  "selfcheck": {
+    "$comment": "自检：门禁体系本身必须能被证明有效（负向对照自己也要被验证）。",
+    "cases": [
+      {
+        "id": "SC1",
+        "name": "缺件必须阻断",
+        "expect": "G1 对缺失产物返回 blocked"
+      },
+      {
+        "id": "SC2",
+        "name": "齐全必须通过",
+        "expect": "补齐产物后 G1 返回 pass"
+      },
+      {
+        "id": "SC3",
+        "name": "恒真门禁必须被判不可信",
+        "expect": "负向对照返回 0 时，该门禁记 unverified（⚠）而非 pass"
+      },
+      {
+        "id": "SC4",
+        "name": "未声明负向对照记未验证",
+        "expect": "缺少 negative_control 的门禁记 unverified，且不阻断"
+      },
+      {
+        "id": "SC5",
+        "name": "未定义状态必须报错",
+        "expect": "STATE 写入未知值时引擎非零退出"
+      },
+      {
+        "id": "SC6",
+        "name": "证据缺失必须阻断",
+        "expect": "门禁记录缺 exitCode 时 G2 返回 blocked"
+      },
+      {
+        "id": "SC7",
+        "name": "静默降档必须提示",
+        "expect": "轻档 + 契约面变更时 G7 返回 unverified"
+      },
+      {
+        "id": "SC8",
+        "name": "预算超限必须阻断",
+        "expect": "产物超过阻断线时 G4 返回 blocked"
+      }
+    ]
+  },
+  "$schemaVersion": "1.5.0"
+}

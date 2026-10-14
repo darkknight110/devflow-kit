@@ -1,0 +1,14 @@
+# macOS / 编辑器
+.DS_Store
+*.swp
+.idea/
+.vscode/
+
+# devflow 机器状态与渲染产物（可重算，不入库；items/ 里的产物仍应入库）
+.devflow/.local/
+scripts/*-should-fail.sh
+
+# 本仓自用（若有人在本仓上跑 devflow）
+.devflow/items/
+node_modules/
+*.log

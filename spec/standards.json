@@ -1,0 +1,150 @@
+{
+  "$comment": "devflow 基础标准（产品自身的标准，单一来源）。\n\n定位：本文档是**产品对任何项目都成立的最低要求**，与任何具体业务仓无关。\n项目可以在 devflow.json 里声明自己的规则覆盖/追加，但**不得覆盖 exemptable=false 的条目**。\n\n每条字段说明：\n  id            稳定标识，供 status/report/文档引用\n  tier          适用档位（micro/light/standard/heavy）；'all' 表示全部\n  judge         判定方式：machine=引擎可自动判定；manual=需人确认并留痕\n  check         引擎据以判定的数据来源（machine 条目必填）\n  consequence   违反且未登记豁免时的后果：block=阻断 / weaken=削弱（⚠，不阻断） / info=提示\n  exemptable    是否允许项目登记豁免；false=不可豁免（产品底线）\n  reason        为什么设立这一条（写给使用者看）",
+  "version": "1.5.0",
+  "standards": [
+    {
+      "id": "STD-GATE-TEST-RUNS",
+      "title": "测试门禁必须真的跑到测试，不能空转",
+      "tier": "all",
+      "judge": "machine",
+      "check": "gate:test",
+      "rule": "test 门禁的计数必须来自真实测试输出；`Tests run: 0`、`No tests to run`、`No test files found` 一律视为空转",
+      "consequence": "block",
+      "exemptable": true,
+      "reason": "『门禁通过却什么都没测』是最危险的假通过：CI 显示绿灯，实际零覆盖。存量项目可登记 baseline_exempt，但必须写明清除条件。"
+    },
+    {
+      "id": "STD-GATE-NEGATIVE-CONTROL",
+      "title": "每个项目门禁必须有负向对照",
+      "tier": "light,standard,heavy",
+      "judge": "machine",
+      "check": "gate:test,gate:build",
+      "rule": "每个声明的项目门禁都要有 negative_control，用来证明门禁不是恒真",
+      "consequence": "weaken",
+      "exemptable": true,
+      "reason": "没有负向对照的门禁无法区分『真的通过』与『命令根本没跑起来』。"
+    },
+    {
+      "id": "STD-GATE-NEGATIVE-EVIDENCE",
+      "title": "负向对照必须输出失败证据，不能只看退出码",
+      "tier": "all",
+      "judge": "machine",
+      "check": "env-failure + failure-markers",
+      "rule": "负向对照退出码非 0 **且** 输出含失败证据（FAIL / AssertionError / 失败计数 / BUILD FAILURE 等）才算有效",
+      "consequence": "weaken",
+      "exemptable": false,
+      "reason": "真实踩过：测试文件被配置 exclude 后报『No test files found』也返回退出码 1，负向对照**空转**却让门禁显示『可信』。只看退出码无法区分。此为产品底线，不可豁免。"
+    },
+    {
+      "id": "STD-GATE-HONEST-EXIT",
+      "title": "门禁脚本不得谎报通过",
+      "tier": "all",
+      "judge": "machine",
+      "check": "gate script content + exit code",
+      "rule": "门禁脚本必须以自身退出码表达真实结论；禁止『无条件 exit 0』的包装脚本，除非在 devflow.json 里显式登记 baseline_debt（含原因与清除条件）",
+      "consequence": "weaken",
+      "exemptable": true,
+      "reason": "真实踩过：`lint.sh` 无条件 exit 0，配置里还写着『errors 已为 0』，而实测有 19 个 error。判定分级（刻意如此）：① 门禁**谎报**（脚本内容层面）⇒ 由 doctor 的 D4 阻断；② 门禁**诚实失败**但已登记 baseline_debt ⇒ 本条目判『未满足/削弱』并显示清除条件，**不阻断**——否则声明债务会比谎报更糟，使用者会倾向删掉声明。"
+    },
+    {
+      "id": "STD-TEST-BASELINE",
+      "title": "测试基线：必须有可运行的测试，否则显式登记",
+      "tier": "all",
+      "judge": "machine",
+      "check": "gate:test count",
+      "rule": "test 门禁要么真实跑到 ≥1 个测试；要么在 devflow.json 登记 baseline_exempt（含 reason 与 clear_when）",
+      "consequence": "block",
+      "exemptable": true,
+      "reason": "『没有任何测试』不是错误，但**假装有测试**是。登记豁免让债务可见（显示为 ■ 而非 ✓）。"
+    },
+    {
+      "id": "STD-EVIDENCE-BY-COMMAND",
+      "title": "结论必须由命令与退出码支撑，不得仅凭声明",
+      "tier": "light,standard,heavy",
+      "judge": "machine",
+      "check": "verification.md 证据节 + STATUS.json lastRun",
+      "rule": "verification.md 的『证据』节必须包含可复现的命令与其结论；禁止只写『已验证』『已自查』",
+      "consequence": "block",
+      "exemptable": false,
+      "reason": "本产品的核心承诺是『判断必须可见』。只写结论不写命令等于没有证据。不可豁免。"
+    },
+    {
+      "id": "STD-EVIDENCE-INDEPENDENT-REVIEW",
+      "title": "声称独立复核就必须有复核留痕",
+      "tier": "standard,heavy",
+      "judge": "machine",
+      "check": "verification.md 独立复核节",
+      "rule": "若记录里写了『独立复核/独立验证』，必须同时写明复核方标识或时间戳（或原样转录并标注转录者）",
+      "consequence": "block",
+      "exemptable": false,
+      "reason": "真实踩过：复核还没回来就把『已由独立子代理复核』写进记录（顺序倒置）。不可豁免。"
+    },
+    {
+      "id": "STD-UNVERIFIED-EXPLICIT",
+      "title": "未验证项必须显式登记：未验证 ≠ 可以",
+      "tier": "all",
+      "judge": "machine",
+      "check": "doctor findings + STATUS.json",
+      "rule": "因环境受限、缺工具链等原因无法验证的门禁，必须被判为 unverified（⚠）并写明原因；不得显示为 ✓、也不得阻断",
+      "consequence": "weaken",
+      "exemptable": false,
+      "reason": "环境受限的仓库若被判为『失败』，使用者会开始忽略所有告警；若被判为『通过』，则风险被隐藏。两者都不可接受。不可豁免。"
+    },
+    {
+      "id": "STD-CONTRACT-FROZEN",
+      "title": "契约面变更必须冻结契约清单",
+      "tier": "heavy",
+      "judge": "machine",
+      "check": "CONTRACT.md 必需章节与所有权表",
+      "rule": "变更面含 contract/interface 时，必须写 CONTRACT.md：唯一 owner、消费方表、兼容策略（三选一）、校验方式、破坏性判定",
+      "consequence": "block",
+      "exemptable": false,
+      "reason": "跨仓/跨边界的改动若没有冻结契约，各方只能靠口头对齐 —— 真实案例中同一次网关前缀调整被两个仓各改了一遍。不可豁免。"
+    },
+    {
+      "id": "STD-CONTRACT-ASSERTED",
+      "title": "契约必须写成可执行断言",
+      "tier": "heavy",
+      "judge": "machine",
+      "check": "CONTRACT.md 校验方式 + 项目测试",
+      "rule": "CONTRACT.md 声明的『校验方式』必须指向可运行的断言（测试命令），且该命令以自身退出码表达结论",
+      "consequence": "weaken",
+      "exemptable": true,
+      "reason": "契约若只写在文档里，会随代码漂移。真实案例：前端调用了后端根本不存在的端点，类型检查完全抓不到。"
+    },
+    {
+      "id": "STD-COMMIT-MESSAGE",
+      "title": "提交信息只做概括",
+      "tier": "all",
+      "judge": "machine",
+      "check": "tools/validate-commit-msg.mjs",
+      "rule": "`<type>(<scope>): <摘要>`（≤72 字），正文 ≤3 条要点、每条 ≤100 字、不允许空行分段、总行数 ≤8",
+      "consequence": "info",
+      "exemptable": true,
+      "reason": "提交信息用于快速定位改动，不是变更日志或复盘文档。规则与实现见 tools/validate-commit-msg.mjs（本文档不重复定义）。"
+    },
+    {
+      "id": "STD-EXEMPTION-DECLARED",
+      "title": "任何豁免都要写明原因与清除条件",
+      "tier": "all",
+      "judge": "machine",
+      "check": "devflow.json baseline_exempt / baseline_debt",
+      "rule": "豁免必须含 reason 与 clear_when；豁免**只减不增**（不得让已清除的债务重新出现）",
+      "consequence": "block",
+      "exemptable": false,
+      "reason": "没有清除条件的豁免等于永久放弃该项要求。不可豁免。"
+    },
+    {
+      "id": "STD-SCOPE-NOT-CLAIMED",
+      "title": "未纳入范围的仓不得被默认为合格",
+      "tier": "all",
+      "judge": "manual",
+      "check": "范围声明文档",
+      "rule": "未接入/未体检的仓库必须显式标注『无结论』；不得以『其他仓也是这样』作为合格依据",
+      "consequence": "info",
+      "exemptable": true,
+      "reason": "产品只对已接入范围给出结论。把『没检查』当『没问题』是采用阶段最常见的事故来源。"
+    }
+  ],
+  "$schemaVersion": "1.5.0"
+}

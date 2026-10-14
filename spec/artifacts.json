@@ -1,0 +1,245 @@
+{
+  "$comment": "产物 schema 正典。引擎按此校验必填字段与结构；字段缺失即阻断（G1）。 文档规范（产物头、章节次序、标点、表格约定）见本文件的 documentConventions。",
+  "version": "1.5.0",
+  "itemsDir": ".devflow/items",
+  "projectConfig": "devflow.json",
+  "workspaceConfig": "devflow.workspace.json",
+  "archive": {
+    "afterDays": 90,
+    "keepRecent": 20,
+    "dir": ".devflow/archive"
+  },
+  "artifacts": {
+    "SPEC.md": {
+      "type": "markdown",
+      "tier": {
+        "required": [
+          "light",
+          "standard",
+          "heavy"
+        ]
+      },
+      "requiredSections": [
+        "身份",
+        "验收标准",
+        "不做什么"
+      ],
+      "tables": {
+        "身份": {
+          "requiredKeys": [
+            "item",
+            "tier",
+            "owner",
+            "repos",
+            "change_surface"
+          ]
+        },
+        "验收标准": {
+          "requiredColumns": [
+            "AC",
+            "判据",
+            "判据类型",
+            "责任方"
+          ],
+          "minRows": 1
+        }
+      },
+      "description": "需求与验收标准；每条 AC 必须有判据与判据类型"
+    },
+    "CONTRACT.md": {
+      "type": "markdown",
+      "tier": {
+        "required": [
+          "heavy"
+        ]
+      },
+      "requiredSections": [
+        "所有权",
+        "消费者",
+        "兼容策略",
+        "校验方式"
+      ],
+      "tables": {
+        "所有权": {
+          "requiredKeys": [
+            "owner",
+            "surface"
+          ]
+        }
+      },
+      "description": "跨边界契约；owner 唯一、破坏性判定、兼容策略三选一"
+    },
+    "TASKS.md": {
+      "type": "markdown",
+      "tier": {
+        "required": [
+          "standard",
+          "heavy"
+        ]
+      },
+      "requiredSections": [
+        "任务"
+      ],
+      "tables": {
+        "任务": {
+          "requiredColumns": [
+            "T",
+            "目标仓",
+            "负责层",
+            "写入范围",
+            "依赖",
+            "状态",
+            "负责人",
+            "验收命令",
+            "对应AC"
+          ],
+          "minRows": 1,
+          "$comment": "「状态」是任务级进度（待开始/进行中/已完成/阻塞）——变更级状态无法表达「同一次变更里哪几个任务做完了」。「负责人」用于分派人。「负责层」用于分层。阻塞原因写在状态格内（`阻塞（原因）`），由 `devflow task` 维护。"
+        }
+      },
+      "description": "任务拆解；写入范围用于计算子代理切分",
+      "$comment": "任务分解。写入范围供 D12 检查并行安全；负责层供分派；状态供进度可视化（devflow view）。"
+    },
+    "coding_report.md": {
+      "type": "markdown",
+      "tier": {
+        "required": [
+          "light",
+          "standard",
+          "heavy"
+        ]
+      },
+      "requiredSections": [
+        "改了什么",
+        "涉及提交"
+      ],
+      "description": "实现报告；必须列出提交或变更文件"
+    },
+    "verification.md": {
+      "type": "markdown",
+      "tier": {
+        "required": [
+          "light",
+          "standard",
+          "heavy"
+        ]
+      },
+      "requiredSections": [
+        "逐条对照",
+        "结论",
+        "证据"
+      ],
+      "tables": {
+        "逐条对照": {
+          "requiredColumns": [
+            "AC",
+            "结论",
+            "证据"
+          ],
+          "minRows": 1
+        }
+      },
+      "forbidden": [
+        {
+          "pattern": "^(?!.*(?:文件:|行号|\\.md|退出码|exit=)).*已通过\\s*$",
+          "message": "结论必须有证据（文件:行号 / 命令输出 / 退出码）"
+        }
+      ],
+      "description": "验证记录；三态结论 + 原始证据 + 豁免单列"
+    },
+    "APPROVALS.md": {
+      "type": "markdown",
+      "tier": {
+        "required": [
+          "light",
+          "standard",
+          "heavy"
+        ]
+      },
+      "requiredSections": [
+        "确认记录"
+      ],
+      "tables": {
+        "确认记录": {
+          "requiredColumns": [
+            "确认点",
+            "确认人",
+            "时间",
+            "结论"
+          ],
+          "minRows": 1
+        }
+      },
+      "description": "人工确认记录；口头确认不作为证据"
+    },
+    "release/report.md": {
+      "type": "markdown",
+      "tier": {
+        "required": [
+          "light",
+          "standard",
+          "heavy"
+        ]
+      },
+      "requiredSections": [
+        "发布内容",
+        "验证证据",
+        "观察窗口"
+      ],
+      "description": "发布报告卡；每条含命令原文与原始输出；含 48 小时观察窗口"
+    },
+    "STATE": {
+      "type": "text",
+      "tier": {
+        "required": [
+          "micro",
+          "light",
+          "standard",
+          "heavy"
+        ]
+      },
+      "description": "当前状态（单行）"
+    },
+    "STATUS.json": {
+      "type": "json",
+      "tier": {
+        "required": [
+          "micro",
+          "light",
+          "standard",
+          "heavy"
+        ]
+      },
+      "description": "机器读：门禁结果、证据索引、档位、kit 版本"
+    }
+  },
+  "judgementTypes": [
+    "命令",
+    "画面",
+    "报告卡"
+  ],
+  "conclusionValues": [
+    "已实现",
+    "未实现",
+    "阻断"
+  ],
+  "$schemaVersion": "1.5.0",
+  "documentConventions": {
+    "$comment": "产物「长什么样」的约定。此前在 spec/docs.json 里重复定义过产物结构与 requiredSections，与本节所在的 artifacts.json 冲突（同一事实两个来源）—— 已合并到此，docs.json 已删除。",
+    "header": {
+      "$comment": "产物头：每个 Markdown 产物第一行 H1 之后必须是这一行（机器校验其存在）。",
+      "template": "> **产物**：{{ARTIFACT}}　**状态**：{{STATE}}　**最后更新**：{{DATE}}",
+      "required": true
+    },
+    "headings": {
+      "title": "H1 使用产物名，不带 emoji、不带序号",
+      "sections": "H2（`## 一、xxx` 或 `## 证据`）",
+      "subsections": "H3（`### xxx`）",
+      "numbering": "中文产物用「一、二、三」；机器判定章节（如「证据」「验收标准」）不编号，便于程序定位"
+    },
+    "punctuation": "中文正文用全角标点；代码、命令、路径用反引号",
+    "tables": "可核对的事实一律用表格；列名固定（机器校验 requiredColumns）",
+    "evidence": "凡结论必须附命令与结果；禁止只写『已验证』",
+    "language": "中文（与团队一致）；专有名词、命令、标识符保留原文"
+  }
+}

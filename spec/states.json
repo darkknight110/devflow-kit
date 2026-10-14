@@ -1,0 +1,292 @@
+{
+  "$comment": "状态机正典。规则：必须全量枚举；引擎遇到未定义状态必须报错退出，禁止任何默认放行。",
+  "version": "1.5.0",
+  "profiles": {
+    "$comment": "规模档决定启用哪些阶段与确认点。同一套内核只换开关。",
+    "solo": {
+      "name": "单人",
+      "enabledStates": [
+        "draft",
+        "spec_ready",
+        "implementing",
+        "tested",
+        "verified",
+        "released"
+      ],
+      "contractStateRequired": false,
+      "approvalsRequired": 1,
+      "testFloor": 0
+    },
+    "team": {
+      "name": "小队",
+      "enabledStates": [
+        "draft",
+        "spec_ready",
+        "contracted",
+        "implementing",
+        "tested",
+        "verified",
+        "released"
+      ],
+      "contractStateRequired": true,
+      "approvalsRequired": 2,
+      "testFloor": 1
+    },
+    "cross-team": {
+      "name": "多团队",
+      "enabledStates": [
+        "draft",
+        "spec_ready",
+        "contracted",
+        "implementing",
+        "tested",
+        "verified",
+        "released"
+      ],
+      "contractStateRequired": true,
+      "approvalsRequired": 3,
+      "testFloor": 1
+    },
+    "contractor": {
+      "name": "外包交付",
+      "enabledStates": [
+        "draft",
+        "spec_ready",
+        "contracted",
+        "implementing",
+        "tested",
+        "verified",
+        "released"
+      ],
+      "contractStateRequired": true,
+      "approvalsRequired": 3,
+      "testFloor": 1
+    },
+    "learning": {
+      "name": "教学",
+      "enabledStates": [
+        "draft",
+        "spec_ready",
+        "implementing",
+        "tested"
+      ],
+      "contractStateRequired": false,
+      "approvalsRequired": 0,
+      "testFloor": 0
+    },
+    "legacy": {
+      "name": "存量接入",
+      "enabledStates": [
+        "draft",
+        "spec_ready",
+        "contracted",
+        "implementing",
+        "tested",
+        "verified",
+        "released"
+      ],
+      "contractStateRequired": false,
+      "approvalsRequired": 2,
+      "testFloor": 0,
+      "baselineExemptAllowed": true
+    }
+  },
+  "tiers": {
+    "$comment": "档位。降档禁令见 docs/01-workflow-spec；引擎用 G7 做启发式比对（会漏报）。",
+    "micro": {
+      "name": "微",
+      "requiredArtifacts": [],
+      "approvals": 0,
+      "skippableStates": [
+        "spec_ready",
+        "contracted",
+        "implementing",
+        "tested",
+        "verified"
+      ]
+    },
+    "light": {
+      "name": "轻",
+      "requiredArtifacts": [
+        "SPEC.md",
+        "coding_report.md",
+        "verification.md",
+        "APPROVALS.md",
+        "release/report.md"
+      ],
+      "approvals": 1,
+      "skippableStates": [
+        "contracted"
+      ]
+    },
+    "standard": {
+      "name": "标",
+      "requiredArtifacts": [
+        "SPEC.md",
+        "TASKS.md",
+        "coding_report.md",
+        "verification.md",
+        "APPROVALS.md",
+        "release/report.md"
+      ],
+      "approvals": 2,
+      "skippableStates": [
+        "contracted"
+      ]
+    },
+    "heavy": {
+      "name": "重",
+      "requiredArtifacts": [
+        "SPEC.md",
+        "CONTRACT.md",
+        "TASKS.md",
+        "coding_report.md",
+        "verification.md",
+        "APPROVALS.md",
+        "release/report.md"
+      ],
+      "approvals": 3,
+      "skippableStates": []
+    }
+  },
+  "states": {
+    "draft": {
+      "name": "草稿",
+      "required": [],
+      "gate": null,
+      "description": "需求登记，且档位判定已留痕"
+    },
+    "spec_ready": {
+      "name": "需求就绪",
+      "required": [
+        "SPEC.md"
+      ],
+      "gate": "G1",
+      "description": "每条验收标准都有判据与判据类型"
+    },
+    "contracted": {
+      "name": "契约冻结",
+      "required": [
+        "SPEC.md",
+        "CONTRACT.md"
+      ],
+      "gate": "G1",
+      "description": "所有权唯一、破坏性判定明确、兼容策略已选"
+    },
+    "implementing": {
+      "name": "实现中",
+      "required": [
+        "SPEC.md",
+        "CONTRACT.md",
+        "TASKS.md"
+      ],
+      "gate": "G1",
+      "description": "每个任务都有目标仓库、写入范围、验收命令、对应验收标准"
+    },
+    "tested": {
+      "name": "门禁通过",
+      "required": [
+        "SPEC.md",
+        "CONTRACT.md",
+        "TASKS.md",
+        "coding_report.md"
+      ],
+      "gate": "G2",
+      "description": "项目门禁全绿（或按 G6 合法豁免）+ 负向对照通过"
+    },
+    "verified": {
+      "name": "已验证",
+      "required": [
+        "SPEC.md",
+        "CONTRACT.md",
+        "TASKS.md",
+        "coding_report.md",
+        "verification.md",
+        "APPROVALS.md"
+      ],
+      "gate": "G3",
+      "description": "隔离验证者出具三态结论 + 确认点留痕"
+    },
+    "released": {
+      "name": "已发布",
+      "required": [
+        "SPEC.md",
+        "CONTRACT.md",
+        "TASKS.md",
+        "coding_report.md",
+        "verification.md",
+        "APPROVALS.md",
+        "release/report.md"
+      ],
+      "gate": "G5",
+      "description": "报告卡每条含原始输出 + 观察窗口已记录"
+    }
+  },
+  "transitions": [
+    {
+      "from": "draft",
+      "to": "spec_ready",
+      "requires": [
+        "SPEC.md"
+      ]
+    },
+    {
+      "from": "spec_ready",
+      "to": "contracted",
+      "requires": [
+        "CONTRACT.md"
+      ]
+    },
+    {
+      "from": "spec_ready",
+      "to": "implementing",
+      "requires": [
+        "TASKS.md"
+      ],
+      "when": "tier in [light, micro] or profile.contractStateRequired == false"
+    },
+    {
+      "from": "contracted",
+      "to": "implementing",
+      "requires": [
+        "TASKS.md"
+      ]
+    },
+    {
+      "from": "implementing",
+      "to": "tested",
+      "requires": [
+        "coding_report.md"
+      ],
+      "gate": "G2"
+    },
+    {
+      "from": "tested",
+      "to": "verified",
+      "requires": [
+        "verification.md",
+        "APPROVALS.md"
+      ],
+      "gate": "G3"
+    },
+    {
+      "from": "verified",
+      "to": "released",
+      "requires": [
+        "release/report.md"
+      ],
+      "gate": "G5"
+    }
+  ],
+  "rollback": {
+    "$comment": "回退规则：任一门禁失败即回退到指定状态。",
+    "G1": "draft",
+    "G2": "implementing",
+    "G3": "implementing",
+    "G4": "implementing",
+    "G5": "implementing",
+    "G6": "implementing",
+    "G7": "spec_ready"
+  },
+  "$schemaVersion": "1.5.0"
+}

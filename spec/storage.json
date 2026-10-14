@@ -1,0 +1,207 @@
+{
+  "$comment": "存储模型正典。回答一个根本问题：devflow 产出的文件**应该存在哪里、是否入库、能活多久**。\n\n设计前提：这是一个**通用工作流**，一份工具安装要服务多个工作区、多个仓、多种项目类型。因此必须把「工具 / 用户配置 / 工作区 / 仓」四层分开，并按产物的**生命周期**决定归属 —— 而不是按内容。\n\n核心分类（四类，按生命周期）：\n  ① 契约与决策   永久，给团队与后人看          ⇒ 入库\n  ② 执行证据     一次变更，给评审者看          ⇒ 入库\n  ③ 机器状态     秒级/可重算，只有工具自己看    ⇒ 绝不入库\n  ④ 渲染产物     生成那一刻有效，按需重算      ⇒ 绝不入库\n\n历史教训：曾把①②③④全混在 `.devflow/items/` 里，再用一条 `.gitignore` 把它们**整体排除** ——\n结果是「该共享的没共享、该走的还在」，并让「必然过时」的内容混进了合并请求。",
+  "version": "1.5.0",
+  "$schemaVersion": "1.5.0",
+  "levels": {
+    "$comment": "四层作用域。每层只有一个职责，不得越层写文件。",
+    "tool": {
+      "path": "<kit>/",
+      "purpose": "工具安装（代码、模板、正典文档）。只读，不被项目修改。",
+      "examples": [
+        "spec/*.json",
+        "templates/*",
+        "docs/*.md",
+        "scripts/**",
+        "tools/**"
+      ]
+    },
+    "user": {
+      "path": "~/.config/devflow/config.json",
+      "purpose": "跨工作区共享的用户偏好（默认档位、kit 路径等）。",
+      "gitignored": true
+    },
+    "workspace": {
+      "path": "<workspace>/.devflow/",
+      "purpose": "多仓协作的载体：跨仓变更的索引与共享契约快照。",
+      "layout": {
+        "workspace.json": "纳入管理的仓清单与各仓身份",
+        "changes/<变更>/item.json": "跨仓索引：涉及哪些仓、各仓变更目录、契约快照指向",
+        "changes/<变更>/CONTRACT.md": "跨仓契约冻结的副本（便于一处查看）"
+      },
+      "gitignored": false,
+      "note": "这一层此前完全缺失 —— 所以跨仓记录只能丢在工作区根目录，造成游离产物。"
+    },
+    "repo": {
+      "path": "<repo>/.devflow/",
+      "purpose": "单个仓库内的变更记录。",
+      "layout": {
+        "items/<变更>/": "①②类产物：人写的、需要评审的（**入库**）",
+        ".local/items/<变更>/": "③类：机器状态（STATE / STATUS.json）（**整体 gitignore**）",
+        ".local/report/": "④类：渲染看板（**按需重算，不保留**）",
+        "archive/<年>/<变更>/": "已 released 的变更归档"
+      },
+      "gitignored": false
+    }
+  },
+  "classification": {
+    "$comment": "逐产物归属。'zone' 指四类，'tracked' 指是否入库。",
+    "artifacts": [
+      {
+        "file": "CONTRACT.md",
+        "zone": "①契约与决策",
+        "level": "repo",
+        "dir": "items/<变更>/",
+        "tracked": true,
+        "why": "跨团队约定，本产品唯一的长期价值载体"
+      },
+      {
+        "file": "SPEC.md",
+        "zone": "①契约与决策",
+        "level": "repo",
+        "dir": "items/<变更>/",
+        "tracked": true,
+        "why": "验收判据必须被评审看到；micro/light 档可不产出"
+      },
+      {
+        "file": "TASKS.md",
+        "zone": "①契约与决策",
+        "level": "repo",
+        "dir": "items/<变更>/",
+        "tracked": true,
+        "why": "切分与写入范围是协作依据（D12 据此检查 R1/R6）"
+      },
+      {
+        "file": "APPROVALS.md",
+        "zone": "①契约与决策",
+        "level": "repo",
+        "dir": "items/<变更>/",
+        "tracked": true,
+        "why": "谁在何时批的，审计需要"
+      },
+      {
+        "file": "coding_report.md",
+        "zone": "②执行证据",
+        "level": "repo",
+        "dir": "items/<变更>/",
+        "tracked": true,
+        "why": "改动摘要，评审要看"
+      },
+      {
+        "file": "verification.md",
+        "zone": "②执行证据",
+        "level": "repo",
+        "dir": "items/<变更>/",
+        "tracked": true,
+        "why": "证据（命令/退出码/输出），评审要看"
+      },
+      {
+        "file": "release/report.md",
+        "zone": "②执行证据",
+        "level": "repo",
+        "dir": "items/<变更>/",
+        "tracked": false,
+        "why": "观察窗口结论在回填前必然过时；回填后再决定是否保留"
+      },
+      {
+        "file": "STATE",
+        "zone": "③机器状态",
+        "level": "repo",
+        "dir": ".local/items/<变更>/",
+        "tracked": false,
+        "why": "可由工作流重算；入库只会造成无意义冲突"
+      },
+      {
+        "file": "STATUS.json",
+        "zone": "③机器状态",
+        "level": "repo",
+        "dir": ".local/items/<变更>/",
+        "tracked": false,
+        "why": "门禁记录与时间戳，每次运行都变"
+      },
+      {
+        "file": "门禁运行日志",
+        "zone": "③机器状态",
+        "level": "repo",
+        "dir": ".local/",
+        "tracked": false,
+        "why": "秒级产物"
+      },
+      {
+        "file": "report 看板",
+        "zone": "④渲染产物",
+        "level": "repo",
+        "dir": ".local/report/",
+        "tracked": false,
+        "why": "按需重算即可；存下来只会腐烂"
+      },
+      {
+        "file": "devflow.json",
+        "zone": "①契约与决策",
+        "level": "repo",
+        "dir": "<仓根>",
+        "tracked": true,
+        "why": "项目门禁声明，团队共享才有意义"
+      },
+      {
+        "file": "scripts/*-should-fail.sh",
+        "zone": "①契约与决策",
+        "level": "repo",
+        "dir": "scripts/",
+        "tracked": false,
+        "why": "生成物且含刻意失败；各人本地重新生成即可（devflow init 可补齐）"
+      }
+    ]
+  },
+  "rules": [
+    {
+      "id": "STO-1",
+      "rule": "③④类产物一律不得写入 `.devflow/items/`",
+      "why": "混入就会产生无意义冲突与'过时内容进仓库'",
+      "enforcedBy": "machine"
+    },
+    {
+      "id": "STO-2",
+      "rule": "`.devflow/items/` 只放人写的、需要评审的内容",
+      "enforcedBy": "machine"
+    },
+    {
+      "id": "STO-3",
+      "rule": "工具自身产物不得落在**仓库根目录**（如 `devflow-*.md`）",
+      "why": "游离产物没有归属，无法被评审、也没有留存策略",
+      "enforcedBy": "machine"
+    },
+    {
+      "id": "STO-4",
+      "rule": "跨仓变更的索引写在工作区层；各仓只放自己那份",
+      "enforcedBy": "convention"
+    },
+    {
+      "id": "STO-5",
+      "rule": "`devflow-kit` 自身的校验结果只打到 stdout，不落盘到使用者的仓库",
+      "enforcedBy": "convention"
+    },
+    {
+      "id": "STO-6",
+      "rule": "需要别人排期的缺口生成 **issue 文本**，不由 devflow 产出文档",
+      "why": "文档没有责任人、不会出现在看板里，会被漏掉",
+      "enforcedBy": "convention"
+    }
+  ],
+  "gitignore": {
+    "$comment": "由 `devflow init` 追加。注意：**不忽略 `.devflow/` 整个目录**（那是历史错误）。",
+    "lines": [
+      "# devflow 机器状态与渲染产物（可重算，不入库）",
+      ".devflow/.local/",
+      "scripts/*-should-fail.sh"
+    ]
+  },
+  "retention": {
+    "$comment": "没有留存策略的目录一定会烂。",
+    "activeItems": "不设硬上限；超过 20 个活动变更时在 report 中提示归档",
+    "releasedItems": "released 后 90 天提示归档到 `.devflow/archive/<年>/`",
+    "keepForever": [
+      "CONTRACT.md"
+    ],
+    "note": "归档是移动而非删除；契约文件永久保留在 items/ 或 archive/ 中"
+  }
+}

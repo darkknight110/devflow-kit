@@ -1,0 +1,9 @@
+{
+  "devflow": { "kit": "^1.0", "project": "single-repo-service", "kind": "service", "stack": "node" },
+  "profile": "team",
+  "budget": { "warn_kb": 120, "block_kb": 250 },
+  "gates": {
+    "build": { "run": "./scripts/build.sh", "negative_control": "./scripts/build-should-fail.sh" },
+    "test": { "run": "./scripts/test.sh", "count_regex": "Tests run: (\\d+)", "require_min_tests": 1, "negative_control": "./scripts/test-should-fail.sh" }
+  }
+}

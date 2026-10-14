@@ -95,7 +95,7 @@ Cannot validate installed package: dsh.bundle.patch must be a file path or a lis
 | 1 | ~~`bundle` 格式~~ | ✅ **已修正**（见上，来自真实报错 + 本机已装插件对照） |
 | 2 | **端到端加载** | ⚠️ 有待你重启验证。**已修掉上一次导致 boot 失败的原因**（见下），并已做宿主加载器模拟 |
 | 3 | **iframe 是否被 CSP 允许** | DSH 界面里有 `iframe` 用法，机制可用；**是否允许指向 `http://127.0.0.1:8787` 未验证** |
-| 4 | **标签页如何被打开** | 页面型标签（无 `patterns`）**如何进入用户视野**（侧栏 guide？命令？）未验证 |
+| 4 | ~~标签页如何被打开~~ | ✅ **已修**：必须在 `sidebarRightTabs.register({...})` 里带 **`guide: [{ order, title(), description() }]`** 才会在侧栏 guide 里出现按钮。第一次漏了它 ⇒ **界面什么都没有**（实测）。形状照 `dsh-context` 的真实调用 |
 
 ## 环境的两个限制（这就是我无法替你验证的原因）
 
@@ -158,3 +158,24 @@ renderer console: Uncaught SyntaxError: Unexpected token 'export'
 | 3 | 把 React 打进产物 | React 由宿主 `require("react")` 注入 —— 内联会出现**两份 React** |
 
 修正后产物 **80 KB → 2.7 KB**。
+
+## 踩过的坑之二：注册了标签页却"什么都没有看到"
+
+第二次启动不再崩，但界面上**什么都看不到**。原因：
+
+`sidebarRightTabs.register()` 只注册了**类型**，**不产生任何入口**。
+入口要另外声明在同一个调用的 **`guide` 数组**里：
+
+```js
+ctx.sidebarRightTabs.register({
+  id, kind,
+  title: () => 'devflow 看板',
+  guide: [{ order: 30, title: () => 'devflow 看板', description: () => '…' }],  // ← 这个才渲染成按钮
+});
+```
+
+* **guide 条目** = 侧栏 guide 里的按钮（用户从这里打开页面型标签）；
+* 没有 guide ⇒ 类型存在但**用户永远看不到**（与"静默失效"同类）。
+
+形状照 `dsh-context` 的真实调用核对：`{ order, title(), description(), icon? }`
+（**不需要** `id`/`kind` —— 与官方 README 的措辞不完全一致，以真实源码为准）。

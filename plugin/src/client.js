@@ -38,18 +38,26 @@ function BoardFrame() {
 }
 
 function apply(ctx) {
-  // ① 注册标签页类型（页面型：按 kind 打开，不需要 patterns）
+  // ① 注册标签页类型 + **guide 入口**。
+  //    踩过的坑：只注册类型不写 guide ⇒ 标签页存在但**界面上没有任何入口**，
+  //    用户看到的是"什么都没有"（实测）。guide 条目才会渲染成侧栏里的按钮。
+  //    形状照 dsh-context 的真实调用：{ order, title(), description(), icon? }
   ctx.effect(() => ctx.sidebarRightTabs.register({
     id: TAB_ID,
     kind: 'devflow-board',
     title: () => 'devflow 看板',
+    guide: [{
+      order: 30,                                   // 与 dsh-context(20) 相邻，便于在 guide 里找到
+      title: () => 'devflow 看板',
+      description: () => '研发工作流：需求到发布的进展、任务与阻塞（只读）',
+    }],
   }), 'devflow: board tab type');
 
-  // ② 注册该标签页的内容
+  // ② 注册该标签页的内容（props 由框架注入；原样透传）
   ctx.effect(() => ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({
     name: 'sidebar.right.pane.tab',
     key: TAB_ID,
-  }, BoardFrame)), 'devflow: board tab body');
+  }, (props) => h(BoardFrame, props))), 'devflow: board tab body');
 }
 
 /** 插件对象：宿主按 name / inject / apply 三件套识别（不是函数导出） */

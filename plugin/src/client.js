@@ -16,14 +16,54 @@
  * 契约来源（核对过真实源码）：`ctx.sidebarRightTabs.register(...)` 与
  * `ctx.slots.inject('sidebar.right.pane.tab', ...)`，都包在 `ctx.effect(...)` 里。
  */
-import { createElement as h } from 'react';
+import React, { createElement as h } from 'react';
 
 const BOARD_URL = 'http://127.0.0.1:8787';
 const TAB_ID = 'devflow/board';
 
-/** 看板面板：一个 iframe，指向 devflow board 的本地服务 */
+/**
+ * 看板面板：一个 iframe，指向 devflow board 的本地服务。
+ *
+ * 必须处理"服务没在跑"的情形：**否则面板是纯空白，用户不知道原因**
+ * （实测就踩到了这个 —— 打开右栏看到一片空白，其实是没启动服务）。
+ */
 function BoardFrame() {
+  const [state, setState] = React.useState('loading');   // loading | ok | unreachable
+
+  // 探测服务是否可达：iframe 的 onLoad 在成功与"连接失败页"都会触发，
+  // 所以另外用 fetch 判断（失败即视为没启动）。
+  React.useEffect(() => {
+    let alive = true;
+    fetch(BOARD_URL + '/api/state', { mode: 'no-cors' })
+      .then(() => { if (alive) setState('ok'); })
+      .catch(() => { if (alive) setState('unreachable'); });
+    return () => { alive = false; };
+  }, []);
+
+  const hint = h('div', {
+    style: {
+      padding: '18px 20px', fontSize: '12.5px', lineHeight: 1.8,
+      borderBottom: '1px solid rgba(128,128,128,.25)',
+    },
+  },
+    h('div', { style: { fontWeight: 600, marginBottom: '6px' } },
+      state === 'loading' ? '正在检查看板服务…' : '看板服务没有在运行'),
+    state === 'unreachable' ? h('div', null,
+      h('div', { style: { opacity: 0.8 } }, '在项目目录里执行一次：'),
+      h('code', {
+        style: {
+          display: 'block', margin: '6px 0', padding: '7px 10px',
+          background: 'rgba(128,128,128,.14)', borderRadius: '6px',
+          fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px',
+        },
+      }, 'devflow board'),
+      h('div', { style: { opacity: 0.72, fontSize: '11.5px' } },
+        `启动后刷新本面板即可显示（地址：${BOARD_URL}）。`),
+    ) : null,
+  );
+
   return h('div', { style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column' } },
+    state === 'unreachable' ? hint : null,
     h('iframe', {
       src: BOARD_URL,
       title: 'devflow 看板',

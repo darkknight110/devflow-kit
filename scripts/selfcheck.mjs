@@ -1745,7 +1745,65 @@ function sc54() {
 }
 
   sc53();
+/**
+ * SC55：人工确认点的**闸门必须真的有效**（这是"质量第一道闸"，不能是形式）。
+ * 三条硬要求：
+ *   ① 材料不全时**拒绝**记录"通过"（除非 --force 并留理由）；
+ *   ② 占位值（模板里的「（姓名）」「已通过 / 未通过 / 未验证」）**不算**已签核/已验证；
+ *   ③ 有 verification.md 但没有**真实结论**时，同样不得签核（曾漏掉这条）。
+ */
+function sc55() {
+  const root = tmpProject('review');
+  write(root, 'package.json', '{"name":"r"}\n', 0o644);
+  write(root, 'devflow.json', JSON.stringify({ devflow: { project: 'r', kit: '^1.9.0' },
+    gates: { build: { run: './scripts/build.sh' } } }), 0o644);
+  write(root, 'scripts/build.sh', '#!/usr/bin/env bash\necho ok\n', 0o755);
+  const cli = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  execFileSync(process.execPath, [cli, 'init', '--name', 'r'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'new', '--date', '2026-10-14', '--slug', 'd', '--tier', 'light',
+    '--title', 't', '--owner', '张三', '--repos', 'r'], { cwd: root, stdio: 'pipe' });
+  const run = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+
+  // ① 模板刚生成时：判据是占位 ⇒ 必须拒签
+  const before = run(['review', '2026-10-14-d', '--point', '需求与判据']);
+  const refused = /暂不可签核/.test(before.stdout) && /缺判据/.test(before.stdout);
+  // 且显式记录"通过"会被拒
+  const denied = run(['review', '2026-10-14-d', '--point', '需求与判据', '--by', '张三', '--verdict', '通过']);
+  const deniedOk = denied.status !== 0 && /拒绝记录/.test(denied.stdout + denied.stderr);
+  // 模板占位行不得被当成"已签核"
+  const notSigned = !/已记录（（姓名）/.test(before.stdout);
+
+  // ② 填真实判据后：可签，且能记录
+  const specFile = path.join(root, '.devflow', 'items', '2026-10-14-d', 'SPEC.md');
+  let spec = readFileSync(specFile, 'utf8');
+  spec = spec.replace(/（可执行的命令 \+ 期望结果）/g, '`./scripts/test.sh` exit=0')
+    .replace(/（只在一端可见时用画面：截什么、看到什么算通过）/g, '消息中心出现条目')
+    .replace(/（谁负责达成）/g, '后端');
+  writeFileSync(specFile, spec, 'utf8');
+  const ok = run(['review', '2026-10-14-d', '--point', '需求与判据']);
+  const canSign = /材料齐备，可以签核/.test(ok.stdout);
+  const recorded = run(['review', '2026-10-14-d', '--point', '需求与判据', '--by', '李四', '--verdict', '通过', '--note', '判据可执行']);
+  const recordOk = recorded.status === 0 && /已记录/.test(recorded.stdout);
+  const after = run(['review', '2026-10-14-d']);
+  const showsReal = /需求与判据\s+✓ 已记录（李四 \/ 通过）/.test(after.stdout);
+  // 事件留痕
+  const hist = run(['history', '2026-10-14-d']);
+  const eventOk = /人工确认 需求与判据 → 通过/.test(hist.stdout);
+
+  // ③ 发布批准：有 verification.md 但全是占位 ⇒ 不得签
+  const pub = run(['review', '2026-10-14-d', '--point', '发布批准']);
+  const pubBlocked = /暂不可签核/.test(pub.stdout)
+    && /没有\*\*真实的\*\*逐条结论|缺判据/.test(pub.stdout);
+
+  record('SC55', '人工确认点闸门有效：材料不全拒签、占位不算证据、记录可追溯',
+    '占位判据时拒签且记录被拒；占位签核不算已记录；填真实内容后可签并记录；事件留痕；空验证记录不得批准发布',
+    `占位拒签=${refused} 记录被拒=${deniedOk} 占位不算签=${notSigned} 可签=${canSign} 记录成功=${recordOk} 显示真实=${showsReal} 事件=${eventOk} 空验证拒=${pubBlocked}`,
+    refused && deniedOk && notSigned && canSign && recordOk && showsReal && eventOk && pubBlocked);
+  rmSync(root, { recursive: true, force: true });
+}
+
   sc54();
+  sc55();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

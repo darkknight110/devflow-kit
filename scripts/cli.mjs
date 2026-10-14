@@ -40,10 +40,11 @@ import { evaluateGates, summarize, resolveArtifactIn } from './lib/gate.mjs';
 import { runProjectGates } from './lib/evidence.mjs';
 import { diagnose, SEVERITIES, mergeStandardBlockers } from './lib/doctor.mjs';
 import { startBoard, collectBoardState } from './lib/board.mjs';
+import { reviewPack, renderPack } from './lib/review.mjs';
 import { loadStandards, checkStandards } from './lib/standards.mjs';
 import { renderTemplate, TEMPLATE_FILES } from './lib/template.mjs';
 import { loadAdapters, detectAdapters, applyAdapter, auditAdapterRegex } from './lib/adapter.mjs';
-import { dirSizeKb, exists, readText } from './lib/checks.mjs';
+import { dirSizeKb, exists, readText, parseAcceptanceCriteria, parseVerification, parseApprovals, isRealValue } from './lib/checks.mjs';
 import { runSelfcheck } from './selfcheck.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1411,6 +1412,153 @@ function renderStageGraph() {
  * 形态取舍见 scripts/lib/board.mjs 顶部说明：**本地服务而非宿主插件**，
  * 这样浏览器、任何 agent、以后的桌面壳都能复用同一个状态接口。
  */
+/**
+ * devflow review —— 人工确认点（AP1/AP2/AP3）的**决策**命令。
+ *
+ * 不带 --by 时：只**摊开材料**并给出"能不能签"的结论（绝不代填）。
+ * 带 --by 时：记录真人的结论（写 APPROVALS.md + 事件日志）。
+ */
+function buildReviewPack(root, itemId, point, flags) {
+  const dir = machineDir(root, itemId) || path.join(itemsDir(root), itemId);
+  const read = (names) => {
+    for (const n of names) {
+      for (const base of [dir, path.join(itemsDir(root), itemId)]) {
+        const f = path.join(base, n);
+        if (existsSync(f)) return readFileSync(f, 'utf8');
+      }
+    }
+    return '';
+  };
+  const specRaw = read(['SPEC.md']);
+  const appRaw = read(['APPROVALS.md']);
+  const verRaw = read(['verification.md']);
+  const conRaw = read(['CONTRACT.md']);
+  const spec = {
+    raw: specRaw,
+    acceptanceCriteria: parseAcceptanceCriteria(specRaw),
+    clarifyPending: (() => {
+      // 澄清未决项以 `未决` 标记存在于 SPEC 的澄清表
+      const out = [];
+      const m = /##\s*澄清[\s\S]*?\n((?:\|.*\n)+)/.exec(specRaw);
+      if (!m) return out;
+      for (const line of m[1].split('\n')) {
+        if (!/^\s*\|/.test(line) || /^\s*\|[\s:|-]+\|\s*$/.test(line)) continue;
+        const cells = line.split('|').map((c) => c.trim()).slice(1, -1);
+        if (cells.some((c) => /未决/.test(c))) out.push({ id: cells[0], text: cells[1] || '' });
+      }
+      return out;
+    })(),
+  };
+  const tasks = (() => {
+    const t = read(['TASKS.md']);
+    return parseTasks(t);
+  })();
+  const verification = { raw: verRaw, items: parseVerification(verRaw).filter((v) => isRealValue(v.conclusion)), unverified: [] };
+  // 未验证项表
+  const uv = /##\s*未验证项[\s\S]*?\n((?:\|.*\n)+)/.exec(verRaw);
+  if (uv) {
+    for (const line of uv[1].split('\n')) {
+      if (!/^\s*\|/.test(line) || /^\s*\|[\s:|-]+\|\s*$/.test(line)) continue;
+      const cells = line.split('|').map((c) => c.trim()).slice(1, -1);
+      // 占位/表头不算未验证项（isRealValue 与门禁同口径）
+      if (isRealValue(cells[0]) && !/^(AC|项|编号|未验证)/.test(cells[0])) verification.unverified.push({ ac: cells[0], why: cells[1] || '' });
+    }
+  }
+  const contract = { raw: conRaw, endpoints: (() => {
+    const out = [];
+    for (const m of conRaw.matchAll(/`?(GET|POST|PUT|PATCH|DELETE)\s+(\/[^\s`|)]*)`?/g)) out.push({ method: m[1], path: m[2] });
+    return out;
+  })() };
+  const approvals = parseApprovals(appRaw);
+  const { loaded } = { loaded: null };
+  return reviewPack({ itemId, point, spec, tasks, verification, contract, approvals });
+}
+
+function cmdReview(flags, positional) {
+  const { root } = resolveProject(flags);
+  const itemId = flags.item ? String(flags.item) : pickItem(root, positional, flags);
+  if (!itemId) die('用法：devflow review <变更> --point <确认点> [--by <真人> --verdict 通过|驳回]', 2);
+  const dir = machineDir(root, itemId) || path.join(itemsDir(root), itemId);
+  if (!existsSync(dir)) die(`变更目录不存在：${itemId}`, 2);
+
+  const points = ['需求与判据', '契约冻结', '发布批准'];
+  const point = flags.point ? String(flags.point) : null;
+
+  // 不带 --point：列出本变更需要哪些确认点、当前状态
+  if (!point) {
+    const appRaw = (() => {
+      for (const f of [path.join(dir, 'APPROVALS.md'), path.join(itemsDir(root), itemId, 'APPROVALS.md')]) {
+        if (existsSync(f)) return readFileSync(f, 'utf8');
+      }
+      return '';
+    })();
+    const approvals = parseApprovals(appRaw);
+    const lines = [`${paint('devflow review', 'bold')}  ${itemId}`, '', '本变更的确认点：'];
+    for (const pt of points) {
+      const rec = approvals.find((a) => String(a.point).includes(pt));
+      const mark = rec ? `${paint('✓', 'green')} 已记录（${rec.who} / ${rec.verdict}）` : '— 未记录';
+      lines.push(`  ${pt}　${mark}`);
+    }
+    lines.push('');
+    lines.push(`查看某个确认点的决策材料：devflow review ${itemId} --point <确认点>`);
+    out(flags, lines.join('\n'), { itemId, approvals });
+    return;
+  }
+
+  const pack = buildReviewPack(root, itemId, point, flags);
+
+  // 记录结论
+  if (flags.by || flags.verdict) {
+    if (!flags.by) die('记录结论必须指定 --by <真人姓名>（agent 不得代为签核）', 2);
+    if (!flags.verdict) die('记录结论必须指定 --verdict 通过|驳回', 2);
+    if (!/^(通过|驳回)$/.test(String(flags.verdict))) die(`--verdict 只能是通过 或 驳回（收到：${flags.verdict}）`, 2);
+    if (!pack.canSign && String(flags.verdict) === '通过' && !flags.force) {
+      die([
+        `材料不全，拒绝记录「通过」：`,
+        ...pack.blockers.map((b) => `  ⛔ ${b}`),
+        '',
+        '  若确认要签（例如某项已知并接受），加 --force 并在 --note 里写明理由。',
+      ].join('\n'), 2);
+    }
+    const appFile = (() => {
+      for (const f of [path.join(dir, 'APPROVALS.md'), path.join(itemsDir(root), itemId, 'APPROVALS.md')]) {
+        if (existsSync(f)) return f;
+      }
+      return null;
+    })();
+    if (!appFile) die('没有 APPROVALS.md —— 先 devflow fill <变更> --to <状态> 生成', 2);
+    const lines = readFileSync(appFile, 'utf8').split('\n');
+    const at = new Date().toISOString().replace(/\.\d+Z$/, 'Z');
+    let hit = -1;
+    for (let i = 0; i < lines.length; i += 1) {
+      if (/^\s*\|/.test(lines[i]) && lines[i].includes(point) && !/确认点/.test(lines[i]) && !/^\s*\|[\s:|-]+\|\s*$/.test(lines[i])) { hit = i; break; }
+    }
+    const cells = hit >= 0 ? lines[hit].split('|').map((c) => c.trim()).slice(1, -1) : [point, '', '', ''];
+    while (cells.length < 4) cells.push('');
+    cells[0] = point; cells[1] = String(flags.by); cells[2] = at; cells[3] = String(flags.verdict);
+    const row = `| ${cells.join(' | ')} |`;
+    if (hit >= 0) lines[hit] = row;
+    else {
+      const hi = lines.findIndex((l) => /^\s*\|.*确认点/.test(l));
+      if (hi >= 0) lines.splice(hi + 2, 0, row); else lines.push(row);
+    }
+    writeFileSync(appFile, lines.join('\n'), 'utf8');
+    try {
+      appendEvent(root, itemId, { event: 'approval', point, verdict: String(flags.verdict), by: String(flags.by), note: flags.note ? String(flags.note) : null });
+    } catch { /* 事件失败不影响签核 */ }
+    out(flags, [
+      `${paint('✓ 已记录', 'green')}　${point}　${flags.by}　${flags.verdict}`,
+      `  ${at}`,
+      `  写入：${path.relative(root, appFile)}`,
+      flags.note ? `  理由：${flags.note}` : '',
+      !pack.canSign && flags.force ? '  ⚠ 本次为 --force 签核（材料不全，理由已记入事件）' : '',
+    ].filter(Boolean).join('\n'), { itemId, point, recorded: { who: flags.by, at, verdict: flags.verdict } });
+    return;
+  }
+
+  out(flags, renderPack(pack, itemId), { itemId, point, canSign: pack.canSign, blockers: pack.blockers });
+}
+
 function cmdBoard(flags) {
   let root; let loaded = { config: {} };
   // 工作区根没有 devflow.json（它不是"项目"）⇒ 也要能用看板。
@@ -1470,6 +1618,7 @@ function cmdHistory(flags, positional) {
     if (e.event === 'task.update') return `${t}  任务 ${e.task}  ${(e.changes || []).join('；')}  (${e.by || '-'})`;
     if (e.event === 'clarify') return `${t}  澄清 ${e.qid} → ${e.state}  (${e.by || '-'})`;
     if (e.event === 'gate-run') return `${t}  门禁运行  ${typeof e.verdict === 'string' ? e.verdict : JSON.stringify(e.verdict || {}).slice(0, 40)}`;
+    if (e.event === 'approval') return `${t}  人工确认 ${e.point} → ${e.verdict}  (${e.by || '-'})${e.note ? `　理由：${e.note}` : ''}`;
     if (e.event === 'created') return `${t}  创建变更（档位 ${e.tier}，负责人 ${e.owner}）`;
     if (e.from || e.to) return `${t}  状态 ${e.from || '?'} → ${e.to || '?'}${e.forced ? '（强制）' : ''}  (${e.by || e.actor || '-'})`;
     return `${t}  ${e.event || '事件'}  ${JSON.stringify(e).slice(0, 60)}`;
@@ -2908,6 +3057,7 @@ try {
     case 'graph': cmdGraph(flags); break;
     case 'history': cmdHistory(flags, positional); break;
     case 'board': cmdBoard(flags); break;
+    case 'review': cmdReview(flags, positional); break;
     case 'task': cmdTask(flags, positional); break;
     case 'clarify': cmdClarify(flags, positional); break;
     case 'setup': cmdSetup(flags); break;

@@ -164,6 +164,27 @@ export function parseVerification(markdown) {
   return out;
 }
 
+
+/**
+ * 占位内容不算证据：模板里的「（姓名）」「（ISO 时间）」「通过 / 驳回」都必须被真实填写。
+ * 提取为共享函数（原先内联在 gate.mjs）—— 门禁、review、看板必须用**同一口径**，
+ * 否则会出现"门禁认为没签、review 认为签了"这种自相矛盾（实测踩到）。
+ */
+export function isRealValue(v) {
+  const t = String(v == null ? '' : v).trim();
+  if (!t) return false;
+  if (/^[（(].*[）)]$/.test(t)) return false;          // 整格就是括号占位
+  if (t.includes('/') && /通过\s*\/\s*驳回/.test(t)) return false;  // 选项未选定（确认记录）
+  // 未选定的「选项列表」：至少两段且全是我们提供的候选项（如「已通过 / 未通过 / 未验证」）
+  if (t.includes('/')) {
+    const parts = t.split('/').map((x) => x.trim()).filter(Boolean);
+    const choices = /^(已通过|未通过|未验证|通过|驳回|是|否|命令|画面|报告卡|不适用)$/;
+    if (parts.length >= 2 && parts.every((x) => choices.test(x))) return false;
+  }
+  if (/^[（(]/.test(t)) return false;                   // 以括号开头视为未填
+  return true;
+}
+
 /** 确认记录 → [{ 确认点, 确认人, 时间, 结论 }] */
 export function parseApprovals(markdown) {
   const section = findSection(markdown, ['确认记录']);

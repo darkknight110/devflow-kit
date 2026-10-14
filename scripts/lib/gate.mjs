@@ -9,18 +9,7 @@
  */
 import { existsSync, statSync } from 'node:fs';
 import path from 'node:path';
-import {
-  dirSizeKb,
-  exists,
-  findSection,
-  keyValues,
-  parseAcceptanceCriteria,
-  parseApprovals,
-  parseTasks,
-  parseVerification,
-  readText,
-  listFiles,
-} from './checks.mjs';
+import { dirSizeKb, exists, findSection, keyValues, parseAcceptanceCriteria, parseApprovals, parseTasks, parseVerification, readText, listFiles, isRealValue } from './checks.mjs';
 import { instructionChainKb } from './manifest.mjs';
 
 const MAX_EVIDENCE_FILES = 6;
@@ -403,14 +392,7 @@ export function evaluateGates(ctx) {
     const appText = readText(resolveArtifactIn(itemDir, 'APPROVALS.md'));
     if (appText) {
       // 占位内容不算证据：模板里的「（姓名）」「（ISO 时间）」「通过 / 驳回」都必须被真实填写。
-      const isReal = (v) => {
-        const t = String(v || '').trim();
-        if (!t) return false;
-        if (/^[（(].*[）)]$/.test(t)) return false;      // 整格就是括号占位
-        if (t.includes('/') && /通过\s*\/\s*驳回/.test(t)) return false;  // 选项未选定
-        if (/^[（(]/.test(t)) return false;               // 以括号开头视为未填
-        return true;
-      };
+        const isReal = isRealValue;   // 与 review/看板共用同一口径（避免两份实现）
       const approvals = parseApprovals(appText).filter((a) => isReal(a.who) && isReal(a.at) && isReal(a.verdict));
       // 确认点随状态递进：在 spec_ready 就要求"发布批准"是假阻断。
       //   需求与判据 → 进入 spec_ready 起

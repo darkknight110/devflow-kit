@@ -130,6 +130,25 @@ export function workspaceMembers(root) {
   } catch { return null; }
 }
 
+/**
+ * 向上寻找项目/工作区根。
+ *
+ * 为什么要有它：插件从任意 cwd 启动看板服务时，**它不知道用户的工作区在哪**。
+ * 与其让插件猜（它会猜成插件自己的目录，实测踩到），不如让看板自己找 ——
+ * 看板才知道什么算"根"（`.devflow/`、`devflow.json`、`devflow.workspace.json`）。
+ */
+export function discoverProjectRoot(startDir = process.cwd(), maxUp = 8) {
+  const markers = ['.devflow', 'devflow.json', 'devflow.workspace.json'];
+  let dir = path.resolve(startDir);
+  for (let i = 0; i < maxUp; i += 1) {
+    if (markers.some((m) => existsSync(path.join(dir, m)))) return dir;
+    const up = path.dirname(dir);
+    if (up === dir) break;
+    dir = up;
+  }
+  return null;
+}
+
 export function collectBoardState(projectRoot, opts = {}) {
   const ids = [];
   for (const dir of [localItemsDir(projectRoot), itemsDir(projectRoot)]) {

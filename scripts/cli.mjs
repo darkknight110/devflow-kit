@@ -1743,10 +1743,14 @@ function cmdReview(flags, positional) {
 
 function cmdBoard(flags) {
   // 工作区根没有 devflow.json（它不是"项目"）⇒ 看板在那里也要能用。
-  const { root, loaded } = resolveProjectOrWorkspace(flags);
+  let { root, loaded } = resolveProjectOrWorkspace(flags);
+  // 从任意目录启动时（插件在宿主里起服务就会这样）向上找项目/工作区根。
+  // 不这样做插件只能猜——它会猜成插件自己的目录（实测踩到）。
+  if (!root) root = discoverProjectRoot(process.cwd());
   if (!root) {
-    die('既不是 devflow 项目，也不是多仓工作区。\n'
-      + '  · 项目：先 devflow init\n  · 工作区：在根目录 devflow workspace init', 2);
+    die('既不是 devflow 项目，也不是多仓工作区（已在当前目录及其上级查找）。\n'
+      + '  · 项目：先 devflow init\n  · 工作区：在根目录 devflow workspace init\n'
+      + '  · 也可显式指定：devflow board --root <项目根>', 2);
   }
   const port = Number(flags.port || process.env.DEVFLOW_BOARD_PORT || 8787);
   const intervalMs = Number(flags.interval || 2000);

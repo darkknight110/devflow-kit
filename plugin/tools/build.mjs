@@ -86,11 +86,27 @@ await esbuildBuild({
   target: 'es2022',
   // React 由宿主 require 注入，不能内联（否则出现两份 React）
   external: ['react', 'react-dom', 'react/jsx-runtime', '@deepseek-ai/*'],
+  // 端口在构建期注入（与宿主半边读同一个环境变量，避免两处硬编码漂移）
+  define: { __DEVFLOW_PORT__: String(Number(process.env.DEVFLOW_BOARD_PORT || 8787)) },
   logLevel: 'warning',
 });
 
 const bundled = readFileSync(tmpFile, 'utf8');
 rmSync(tmpFile, { force: true });
+
+// ── 宿主半边：lib/index.js（Node 环境，ESM 即可）────────────────
+const hostOut = path.join(outDir, 'index.js');
+await esbuildBuild({
+  entryPoints: [path.join(pluginRoot, 'src', 'index.js')],
+  outfile: hostOut,
+  bundle: true,
+  format: 'esm',
+  platform: 'node',
+  target: 'node20',
+  external: ['@deepseek-ai/*'],
+  logLevel: 'warning',
+});
+process.stdout.write(`✓ 已打包宿主半边：${path.relative(pluginRoot, hostOut)}\n`);
 
 const wrapped = [
   '/* 由 devflow plugin/tools/build.mjs 生成；请勿手改。',

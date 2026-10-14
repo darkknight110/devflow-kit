@@ -179,3 +179,17 @@ ctx.sidebarRightTabs.register({
 
 形状照 `dsh-context` 的真实调用核对：`{ order, title(), description(), icon? }`
 （**不需要** `id`/`kind` —— 与官方 README 的措辞不完全一致，以真实源码为准）。
+
+## 踩过的坑之三：要求用户自己起服务（已修）
+
+第一版只做客户端 iframe，要求用户**自己到项目目录执行 `devflow board`**。用户反馈：
+> 不会在点击的时候主动运行吗？每次都需要在项目目录里执行吗？
+
+**这是把本可自动化的事推给人**，而且不执行就看到一片空白（无提示）。已修两处：
+
+| # | 修法 |
+|---|---|
+| 1 | **宿主半边自动起服务**：`src/index.js` 在插件激活时先探测 `8787`，未就绪才用 `ctx.shell.execute(ctx.shell.resolve({ command, onExpiry: 'none' }))` 起一个**常驻**的 `devflow board`；起不来**不抛异常**（面板会显示原因，而抛异常会连累整个 web boot） |
+| 2 | **看板自己向上找根**：`discoverProjectRoot()` 从 cwd 逐级向上找 `.devflow/`、`devflow.json`、`devflow.workspace.json`。这样插件从任意目录启动都能找到用户的工作区 —— 不让插件去猜（它会猜成插件自己的目录，实测踩到） |
+
+**仍然保留的边界**：插件只在**服务未就绪**时启动，不会重复起第二个（避免端口冲突）。

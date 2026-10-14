@@ -18,7 +18,11 @@
  */
 import React, { createElement as h } from 'react';
 
-const BOARD_URL = 'http://127.0.0.1:8787';
+// 端口由插件 config 传入（plugin/package.json 里声明一次），避免宿主与客户端各写一份
+const BOARD_URL = (() => {
+  const port = (typeof __DEVFLOW_PORT__ === 'number' && __DEVFLOW_PORT__) || 8787;
+  return `http://127.0.0.1:${port}`;
+})();
 const TAB_ID = 'devflow/board';
 
 /**

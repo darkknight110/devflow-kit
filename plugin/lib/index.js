@@ -1,10 +1,41 @@
-/**
- * 宿主侧入口（占位）。
- *
- * 本插件**只在客户端工作**（一个内嵌看板的 iframe），不注册任何宿主能力：
- * 看板的渲染与数据全在 `devflow board`（本地服务）里，插件不参与。
- * 保留此文件是为了满足插件包需要主入口的约定。
- */
-export default function devflowBoardHostPlugin() {
-  // 有意为空：不注册模型工具、不注册命令、不申请网络/写权限。
+// src/index.js
+async function boardAlive(url) {
+  try {
+    const res = await fetch(`${url}/api/state`, { method: "GET" });
+    return res.ok;
+  } catch {
+    return false;
+  }
 }
+function devflowBoardHost(ctx) {
+  const PORT = Number(process.env.DEVFLOW_BOARD_PORT || 8787);
+  const URL_ = `http://127.0.0.1:${PORT}`;
+  const root = process.env.DEVFLOW_ROOT || process.cwd();
+  ctx.effect(() => {
+    let cancelled = false;
+    (async () => {
+      if (await boardAlive(URL_)) return;
+      if (cancelled) return;
+      try {
+        if (ctx.shell?.resolve && ctx.shell?.execute) {
+          const spec = ctx.shell.resolve({
+            command: `devflow board --port ${PORT} --root ${root}`,
+            onExpiry: "none"
+          });
+          await ctx.shell.execute(spec);
+        } else {
+          ctx.logger?.info?.("[devflow] \u672A\u53D1\u73B0 ctx.shell \u2014\u2014 \u8BF7\u624B\u52A8\u8FD0\u884C devflow board");
+        }
+      } catch (e) {
+        ctx.logger?.warn?.(`[devflow] \u770B\u677F\u670D\u52A1\u542F\u52A8\u5931\u8D25\uFF1A${e && e.message ? e.message : e}`);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, "devflow: ensure board service");
+}
+export {
+  boardAlive,
+  devflowBoardHost as default
+};

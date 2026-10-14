@@ -1848,7 +1848,9 @@ function cmdView(flags) {
     if (!r.root) die('既不是 devflow 项目，也不是多仓工作区', 2);
     return { root: r.root, loaded: r.loaded, marker: r.root ? 'workspace-or-project' : null };
   })();
-  const outFile = flags.out ? String(flags.out) : 'devflow-view.html';
+  // 默认产物放在 .devflow/ 下（与其它产物一致、在项目内、可被 present）。
+  // 曾与 report 各用不同默认名（devflow-view.html vs .devflow/board.html），属实现不一致。
+  const outFile = flags.out ? String(flags.out) : path.join('.devflow', 'board.html');
   // 与看板**共用同一数据来源**（含多仓工作区成员）：视图与看板必须是
   // "同一状态的两种视图"，否则两边会各说各话（UI 定论里的硬约束）。
   const boardState = collectBoardState(root);

@@ -1972,9 +1972,9 @@ function sc58() {
   // 默认产物必须**落在项目内**。判据不依赖 realpath：
   // macOS 上 /var 与 /private/var 是同一目录的两种写法，realpathSync 并不总是规范化，
   // 用字符串前缀或 relative 会误判（实测踩到）。直接按"文件名 + 是否可从项目根走到"判定。
-  const defFile = path.join(root, 'devflow-view.html');
+  const defFile = path.join(root, '.devflow', 'board.html');
   const inProject = Boolean(dj?.out)
-    && path.basename(dj.out) === 'devflow-view.html'
+    && path.basename(dj.out) === 'board.html'
     && existsSync(defFile);
   const hasUrl = Boolean(dj?.fileUrl) && String(dj.fileUrl).startsWith('file://');
   const fileExists = Boolean(dj?.out) && existsSync(dj.out);

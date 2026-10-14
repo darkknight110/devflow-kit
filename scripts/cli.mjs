@@ -2906,26 +2906,16 @@ function cmdAdapters(flags) {
   out(flags, lines.filter((l) => l !== '').join('\n'), { adapters: Object.keys(adapters), detected, problems, applied: flags.apply || null });
 }
 
+/**
+ * cmdReport —— **view 的历史别名**（保留兼容，不再各写一份实现）。
+ *
+ * 为什么合并：report 与 view 本来都是"生成只读 HTML 视图"，却各有一份渲染路径，
+ * 结果 report 落后于 view（不含 Mermaid 图形、不支持工作区）。
+ * 同一件事有两份实现，必然漂移 —— 所以这里直接委托给 `view`。
+ */
 function cmdReport(flags) {
-  const { root, loaded } = resolveProject(flags);
-  const items = listItems(root).map((i) => evaluateItem({ projectRoot: root, itemId: i.itemId, kitSpec: allSpec(), config: loaded.config, cwd: process.cwd() }));
-  const html = renderBoard({
-    title: loaded.config?.devflow?.project || path.basename(root),
-    profile: loaded.config?.profile || 'team',
-    items,
-    generatedAt: new Date().toISOString(),
-  });
-  const target = flags.out ? path.resolve(String(flags.out)) : path.join(root, '.devflow', 'board.html');
-  mkdirSync(path.dirname(target), { recursive: true });
-  writeFileSync(target, html, 'utf8');
-  // fileUrl 是给**聊天**用的：模型拿到它就能直接 present 给用户，
-  // 用户不需要知道任何命令（"给我看看进度" → 界面上直接出现可点开的视图）。
-  const fileUrl = pathToFileURL(target).href;
-  out(flags, [
-    `${paint('视图已生成', 'green')}  ${target}`,
-    `  可打开：${fileUrl}`,
-    '  只读视图：不选工作区、不改状态、不做审批（干预请回到会话）',
-  ].join('\n'), { target, fileUrl, items: items.length });
+  process.stdout.write('  提示：report 是 view 的历史别名（两者等价）；建议直接用 devflow view\n');
+  return cmdView(flags);
 }
 
 function renderBoard({ title, profile, items, generatedAt }) {

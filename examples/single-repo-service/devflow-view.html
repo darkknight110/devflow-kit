@@ -1,0 +1,554 @@
+<!doctype html>
+<html lang="zh-CN"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>devflow 视图 · single-repo-service</title>
+<style>
+ :root{--bd:#e5e7eb;--mut:#6b7280}
+ *{box-sizing:border-box}
+ body{font:14px/1.6 -apple-system,BlinkMacSystemFont,"PingFang SC","Helvetica Neue",Arial,sans-serif;margin:0;padding:28px;background:#f8fafc;color:#111827}
+ h1{font-size:20px;margin:0 0 4px} h2{font-size:16px;margin:0 0 12px}
+ .sub{color:var(--mut);margin-bottom:20px}
+ .card{background:#fff;border:1px solid var(--bd);border-radius:10px;padding:18px;margin-bottom:16px}
+ .flow{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin-bottom:12px}
+ details.st{position:relative}
+ details.st>summary{padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid var(--bd);color:var(--mut);background:#fff;cursor:pointer;list-style:none}
+ details.st>summary::-webkit-details-marker{display:none}
+ details.st>summary:hover{border-color:#94a3b8;color:#111827}
+ details.st.done>summary{background:#e8f5ec;color:#0a7d33;border-color:#bfe3c9}
+ details.st.now>summary{background:#fff4e5;color:#b7791f;border-color:#f0d6a8;font-weight:600}
+ details.st[open]>summary{outline:2px solid #cbd5e1}
+ .stbody{position:absolute;z-index:5;left:0;top:calc(100% + 6px);width:300px;background:#fff;border:1px solid var(--bd);
+   border-radius:8px;padding:12px;box-shadow:0 6px 20px rgba(15,23,42,.12);text-align:left;font-weight:400}
+ .sdesc{margin:0 0 6px}
+ .cnt{display:inline-block;margin-left:6px;font-size:11px;background:#e0e7ff;color:#3730a3;border-radius:999px;padding:0 6px;font-weight:600}
+ .alerts{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
+ .alert{font-size:12px;border-radius:6px;padding:3px 9px}
+ .alert.ok{background:#e8f5ec;color:#0a7d33} .alert.bad{background:#fdecea;color:#c0392b}
+ .filterbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;margin:12px 0 6px}
+ .fbtn{font:inherit;font-size:12px;padding:3px 10px;border:1px solid var(--bd);background:#fff;color:#374151;
+   border-radius:999px;cursor:pointer}
+ .fbtn:hover{border-color:#94a3b8}
+ .fbtn.on{background:#1d4ed8;border-color:#1d4ed8;color:#fff;font-weight:600}
+ .fnote{font-size:12px;color:var(--mut)}
+ details.task.hidden{display:none}
+ .nofilter{display:none;padding:10px 12px;color:var(--mut);font-size:13px}
+ details.graph{margin:0 0 10px}
+ details.graph>summary{cursor:pointer;color:var(--mut);font-size:12px}
+ details.graph>summary::-webkit-details-marker{display:none}
+ pre.mermaid{background:#fbfdff;border:1px solid var(--bd);border-radius:8px;padding:10px;overflow:auto;
+   font-size:12px;line-height:1.4;white-space:pre;margin:8px 0 0}
+ details.arch>summary{cursor:pointer;font-weight:600}
+ details.doc>summary{cursor:pointer;list-style:none}
+ details.doc>summary::-webkit-details-marker{display:none}
+ .copy{font-size:11px;color:#2563eb;border:1px solid #bfdbfe;border-radius:999px;padding:0 6px}
+ pre.docbody{max-height:300px;overflow:auto;background:#0f172a;color:#e2e8f0;padding:10px;border-radius:6px;
+   font-size:11.5px;line-height:1.5;white-space:pre-wrap;word-break:break-word;margin:6px 0 2px}
+ ul.reqs{list-style:none;padding:0;margin:4px 0 0;font-size:12px}
+ ul.reqs li{padding:1px 0}
+ ul.reqs li.ok{color:#0a7d33} ul.reqs li.no{color:#c0392b}
+ .chip{padding:3px 10px;border-radius:999px;font-size:12px;border:1px solid var(--bd);color:var(--mut);background:#fff}
+ .chip.done{background:#e8f5ec;color:#0a7d33;border-color:#bfe3c9}
+ .chip.now{background:#fff4e5;color:#b7791f;border-color:#f0d6a8;font-weight:600}
+ .arrow{color:#cbd5e1}
+ .progress{height:8px;background:#eef2f7;border-radius:999px;overflow:hidden;margin:6px 0 10px}
+ .bar{height:100%;background:linear-gradient(90deg,#34d399,#059669)}
+ table{width:100%;border-collapse:collapse;margin-top:10px}
+ .tasks{margin-top:10px;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+ details.task{border-bottom:1px solid var(--bd);background:#fff}
+ details.task:last-child{border-bottom:0}
+ details.task>summary{display:flex;align-items:center;gap:10px;padding:9px 12px;cursor:pointer;list-style:none}
+ details.task>summary::-webkit-details-marker{display:none}
+ details.task>summary:hover{background:#f6f9ff}
+ details.task[open]>summary{background:#eef4ff;font-weight:600}
+ .tid{font-weight:600;min-width:38px}
+ .sum-repo{color:var(--mut);font-size:12px}
+ .sum-status{color:var(--mut);font-size:12px}
+ .sum-owner{color:var(--mut);font-size:12px;margin-left:auto}
+ .caret{color:#94a3b8;font-size:11px;border:1px solid var(--bd);border-radius:999px;padding:1px 8px}
+ details.task[open] .caret{visibility:hidden}
+ .detail{padding:4px 14px 14px;background:#fbfdff;border-top:1px dashed var(--bd)}
+ dl{display:grid;grid-template-columns:96px 1fr;gap:6px 12px;margin:10px 0 0}
+ dt{color:var(--mut);font-size:12px} dd{margin:0}
+ th,td{text-align:left;padding:7px 9px;border-bottom:1px solid var(--bd);vertical-align:top}
+ th{font-size:12px;color:var(--mut);font-weight:600;background:#fbfdff}
+ .mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace}
+ .small{font-size:12px;color:var(--mut)}
+ .tag{color:#fff;border-radius:5px;padding:1px 7px;font-size:12px}
+ .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px}
+ .tier{font-size:12px;color:var(--mut);border:1px solid var(--bd);border-radius:5px;padding:1px 6px;font-weight:400}
+ .muted{color:var(--mut)}
+ .badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:12px}
+ .badge.ok{background:#e8f5ec;color:#0a7d33} .badge.warn{background:#fff4e5;color:#b7791f} .badge.bad{background:#fdecea;color:#c0392b}
+ footer{margin-top:22px;color:var(--mut);font-size:12px}
+</style></head><body>
+<h1>devflow 视图 · single-repo-service</h1>
+<div class="sub">/Users/darkrobot/projects/Private-Projects/devflow-kit/examples/single-repo-service　·　生成于 2026-10-14 15:09:34</div>
+<section class="card"><h2>门禁可信度</h2><span class="badge warn">门禁可用，但有 3 项强度被削弱</span><div class="muted" style="margin-top:8px">阻断 0 · 削弱 3 · 提示 3</div></section>
+<section class="card"><details class="graph" open><summary>需求流转图（每个需求处于哪个节点）</summary>
+    <pre class="mermaid">stateDiagram-v2
+  direction LR
+  state &quot;草稿&quot; as draft
+  state &quot;需求就绪&quot; as spec_ready
+  state &quot;契约冻结&quot; as contracted
+  state &quot;实现中&quot; as implementing
+  state &quot;待验证&quot; as tested
+  state &quot;已验证&quot; as verified
+  state &quot;已发布（1）&quot; as released
+  draft --&gt; spec_ready
+  spec_ready --&gt; contracted
+  contracted --&gt; implementing
+  implementing --&gt; tested
+  tested --&gt; verified
+  verified --&gt; released
+  note right of released : 2026-01-01-demo</pre>
+  </details></section>
+<section class="card">
+    <h2>2026-01-01-demo <span class="tier">light</span></h2>
+    
+    <div class="flow"><details class="st done" data-stage="draft">
+        <summary>草稿</summary>
+        <div class="stbody">
+          <p class="sdesc">需求登记，且档位判定已留痕</p>
+          <p class="small muted">已通过</p>
+          <p class="small muted">需要的产物：</p>
+          <p class="muted small">本阶段无额外产物要求</p>
+          <p class="small muted">本阶段不涉及任务（需求/切分或发布收尾）</p>
+        </div>
+      </details><span class="arrow">→</span><details class="st done" data-stage="spec_ready">
+        <summary>需求就绪</summary>
+        <div class="stbody">
+          <p class="sdesc">每条验收标准都有判据与判据类型</p>
+          <p class="small muted">已通过　·　把关门禁：<span class="mono">G1</span></p>
+          <p class="small muted">需要的产物：</p>
+          <ul class="reqs"><li class="ok"><details class="doc"><summary>✓ <span class="mono">SPEC.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># SPEC · 样例：订单导出按钮
+
+## 身份
+
+| 项 | 值 |
+|---|---|
+| item | 2026-01-01-demo |
+| 档位 | 轻（light） |
+| 负责人 | 张三 |
+| 目标仓 | single-repo-service |
+| 变更面 | ui |
+
+## 验收标准
+
+| AC | 判据 | 判据类型 | 责任方 |
+|---|---|---|---|
+| AC-1 | ./scripts/test.sh 退出码 0 且 Tests run ≥ 1 | 命令 | 实现者 |
+
+## 不做什么
+
+- 不改后端接口
+</pre></details></li></ul>
+          <p class="small muted">本阶段不涉及任务（需求/切分或发布收尾）</p>
+        </div>
+      </details><span class="arrow">→</span><details class="st done" data-stage="contracted">
+        <summary>契约冻结</summary>
+        <div class="stbody">
+          <p class="sdesc">所有权唯一、破坏性判定明确、兼容策略已选</p>
+          <p class="small muted">已通过　·　把关门禁：<span class="mono">G1</span></p>
+          <p class="small muted">需要的产物：</p>
+          <ul class="reqs"><li class="ok"><details class="doc"><summary>✓ <span class="mono">SPEC.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># SPEC · 样例：订单导出按钮
+
+## 身份
+
+| 项 | 值 |
+|---|---|
+| item | 2026-01-01-demo |
+| 档位 | 轻（light） |
+| 负责人 | 张三 |
+| 目标仓 | single-repo-service |
+| 变更面 | ui |
+
+## 验收标准
+
+| AC | 判据 | 判据类型 | 责任方 |
+|---|---|---|---|
+| AC-1 | ./scripts/test.sh 退出码 0 且 Tests run ≥ 1 | 命令 | 实现者 |
+
+## 不做什么
+
+- 不改后端接口
+</pre></details></li><li class="no">✗ <span class="mono">CONTRACT.md</span><span class="small">（缺失）</span></li></ul>
+          <p class="small muted">本阶段不涉及任务（需求/切分或发布收尾）</p>
+        </div>
+      </details><span class="arrow">→</span><details class="st done" data-stage="implementing">
+        <summary>实现中<span class="cnt">2 个任务</span></summary>
+        <div class="stbody">
+          <p class="sdesc">每个任务都有目标仓库、写入范围、验收命令、对应验收标准</p>
+          <p class="small muted">已通过　·　把关门禁：<span class="mono">G1</span></p>
+          <p class="small muted">需要的产物：</p>
+          <ul class="reqs"><li class="ok"><details class="doc"><summary>✓ <span class="mono">SPEC.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># SPEC · 样例：订单导出按钮
+
+## 身份
+
+| 项 | 值 |
+|---|---|
+| item | 2026-01-01-demo |
+| 档位 | 轻（light） |
+| 负责人 | 张三 |
+| 目标仓 | single-repo-service |
+| 变更面 | ui |
+
+## 验收标准
+
+| AC | 判据 | 判据类型 | 责任方 |
+|---|---|---|---|
+| AC-1 | ./scripts/test.sh 退出码 0 且 Tests run ≥ 1 | 命令 | 实现者 |
+
+## 不做什么
+
+- 不改后端接口
+</pre></details></li><li class="no">✗ <span class="mono">CONTRACT.md</span><span class="small">（缺失）</span></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">TASKS.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># TASKS · 样例：订单导出按钮
+
+## 任务
+
+| T | 目标仓 | 负责层 | 写入范围 | 依赖 | 状态 | 负责人 | 验收命令 | 对应AC |
+|---|---|---|---|---|---|---|---|---|---|
+| T-1 | single-repo-service | 后端 | src/pages/order/ | 无 | 待开始 | 张三 | ./scripts/test.sh | AC-1 |
+| T-2 | single-repo-service | 后端 | src/pages/order/ | T-1 | 待开始 | 张三 | ./scripts/build.sh | AC-1 |
+</pre></details></li></ul>
+          <p class="small muted">相关任务（2）：</p><ul class="reqs"><li><span class="dot" style="background:#6b7280"></span><span class="mono">T-1</span> 后端 张三 · 待开始</li><li><span class="dot" style="background:#6b7280"></span><span class="mono">T-2</span> 后端 张三 · 待开始</li></ul>
+        </div>
+      </details><span class="arrow">→</span><details class="st done" data-stage="tested">
+        <summary>门禁通过</summary>
+        <div class="stbody">
+          <p class="sdesc">项目门禁全绿（或按 G6 合法豁免）+ 负向对照通过</p>
+          <p class="small muted">已通过　·　把关门禁：<span class="mono">G2</span></p>
+          <p class="small muted">需要的产物：</p>
+          <ul class="reqs"><li class="ok"><details class="doc"><summary>✓ <span class="mono">SPEC.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># SPEC · 样例：订单导出按钮
+
+## 身份
+
+| 项 | 值 |
+|---|---|
+| item | 2026-01-01-demo |
+| 档位 | 轻（light） |
+| 负责人 | 张三 |
+| 目标仓 | single-repo-service |
+| 变更面 | ui |
+
+## 验收标准
+
+| AC | 判据 | 判据类型 | 责任方 |
+|---|---|---|---|
+| AC-1 | ./scripts/test.sh 退出码 0 且 Tests run ≥ 1 | 命令 | 实现者 |
+
+## 不做什么
+
+- 不改后端接口
+</pre></details></li><li class="no">✗ <span class="mono">CONTRACT.md</span><span class="small">（缺失）</span></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">TASKS.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># TASKS · 样例：订单导出按钮
+
+## 任务
+
+| T | 目标仓 | 负责层 | 写入范围 | 依赖 | 状态 | 负责人 | 验收命令 | 对应AC |
+|---|---|---|---|---|---|---|---|---|---|
+| T-1 | single-repo-service | 后端 | src/pages/order/ | 无 | 待开始 | 张三 | ./scripts/test.sh | AC-1 |
+| T-2 | single-repo-service | 后端 | src/pages/order/ | T-1 | 待开始 | 张三 | ./scripts/build.sh | AC-1 |
+</pre></details></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">coding_report.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># 实现报告 · 样例：订单导出按钮
+
+## 改了什么
+
+- src/pages/order/List.tsx：工具栏新增 export 动作
+- scripts/test.sh：把测试计数输出到 stdout（供门禁抓取）
+
+## 涉及提交
+
+| 提交 | 仓库 | 说明 |
+|---|---|---|
+| demo0001 | single-repo-service | 新增导出按钮 |
+</pre></details></li></ul>
+          <p class="small muted">本阶段暂无相关任务</p>
+        </div>
+      </details><span class="arrow">→</span><details class="st done" data-stage="verified">
+        <summary>已验证</summary>
+        <div class="stbody">
+          <p class="sdesc">隔离验证者出具三态结论 + 确认点留痕</p>
+          <p class="small muted">已通过　·　把关门禁：<span class="mono">G3</span></p>
+          <p class="small muted">需要的产物：</p>
+          <ul class="reqs"><li class="ok"><details class="doc"><summary>✓ <span class="mono">SPEC.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># SPEC · 样例：订单导出按钮
+
+## 身份
+
+| 项 | 值 |
+|---|---|
+| item | 2026-01-01-demo |
+| 档位 | 轻（light） |
+| 负责人 | 张三 |
+| 目标仓 | single-repo-service |
+| 变更面 | ui |
+
+## 验收标准
+
+| AC | 判据 | 判据类型 | 责任方 |
+|---|---|---|---|
+| AC-1 | ./scripts/test.sh 退出码 0 且 Tests run ≥ 1 | 命令 | 实现者 |
+
+## 不做什么
+
+- 不改后端接口
+</pre></details></li><li class="no">✗ <span class="mono">CONTRACT.md</span><span class="small">（缺失）</span></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">TASKS.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># TASKS · 样例：订单导出按钮
+
+## 任务
+
+| T | 目标仓 | 负责层 | 写入范围 | 依赖 | 状态 | 负责人 | 验收命令 | 对应AC |
+|---|---|---|---|---|---|---|---|---|---|
+| T-1 | single-repo-service | 后端 | src/pages/order/ | 无 | 待开始 | 张三 | ./scripts/test.sh | AC-1 |
+| T-2 | single-repo-service | 后端 | src/pages/order/ | T-1 | 待开始 | 张三 | ./scripts/build.sh | AC-1 |
+</pre></details></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">coding_report.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># 实现报告 · 样例：订单导出按钮
+
+## 改了什么
+
+- src/pages/order/List.tsx：工具栏新增 export 动作
+- scripts/test.sh：把测试计数输出到 stdout（供门禁抓取）
+
+## 涉及提交
+
+| 提交 | 仓库 | 说明 |
+|---|---|---|
+| demo0001 | single-repo-service | 新增导出按钮 |
+</pre></details></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">verification.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># 验证记录 · 样例：订单导出按钮
+
+## 逐条对照
+
+| AC | 结论 | 证据 |
+|---|---|---|
+| AC-1 | 已实现 | 命令 ./scripts/test.sh 退出码 0，Tests run: 3（见 STATUS.json lastRun.records） |
+| AC-2 | 已实现 | 截图 screenshots/order-export.png，按钮位于工具栏右侧 |
+| AC-3 | 已实现 | coding_report.md 第 5-8 行列出改动文件清单 |
+
+## 结论
+
+- 总体结论：已实现
+- 阻断项：无
+- 基线豁免：无
+
+## 证据
+
+- 命令原文与输出尾部保存在 STATUS.json 的 lastRun.records 中
+</pre></details></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">APPROVALS.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># 确认记录 · 样例：订单导出按钮
+
+## 确认记录
+
+| 确认点 | 确认人 | 时间 | 结论 |
+|---|---|---|---|
+| 需求与判据 | 样例负责人 | 2026-01-01T09:00:00Z | 通过 |
+| 发布批准 | 样例负责人 | 2026-01-01T10:00:00Z | 通过 |
+</pre></details></li></ul>
+          <p class="small muted">本阶段暂无相关任务</p>
+        </div>
+      </details><span class="arrow">→</span><details class="st now" data-stage="released">
+        <summary>已发布</summary>
+        <div class="stbody">
+          <p class="sdesc">报告卡每条含原始输出 + 观察窗口已记录</p>
+          <p class="small muted">← 当前在此　·　把关门禁：<span class="mono">G5</span></p>
+          <p class="small muted">需要的产物：</p>
+          <ul class="reqs"><li class="ok"><details class="doc"><summary>✓ <span class="mono">SPEC.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># SPEC · 样例：订单导出按钮
+
+## 身份
+
+| 项 | 值 |
+|---|---|
+| item | 2026-01-01-demo |
+| 档位 | 轻（light） |
+| 负责人 | 张三 |
+| 目标仓 | single-repo-service |
+| 变更面 | ui |
+
+## 验收标准
+
+| AC | 判据 | 判据类型 | 责任方 |
+|---|---|---|---|
+| AC-1 | ./scripts/test.sh 退出码 0 且 Tests run ≥ 1 | 命令 | 实现者 |
+
+## 不做什么
+
+- 不改后端接口
+</pre></details></li><li class="no">✗ <span class="mono">CONTRACT.md</span><span class="small">（缺失）</span></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">TASKS.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># TASKS · 样例：订单导出按钮
+
+## 任务
+
+| T | 目标仓 | 负责层 | 写入范围 | 依赖 | 状态 | 负责人 | 验收命令 | 对应AC |
+|---|---|---|---|---|---|---|---|---|---|
+| T-1 | single-repo-service | 后端 | src/pages/order/ | 无 | 待开始 | 张三 | ./scripts/test.sh | AC-1 |
+| T-2 | single-repo-service | 后端 | src/pages/order/ | T-1 | 待开始 | 张三 | ./scripts/build.sh | AC-1 |
+</pre></details></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">coding_report.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># 实现报告 · 样例：订单导出按钮
+
+## 改了什么
+
+- src/pages/order/List.tsx：工具栏新增 export 动作
+- scripts/test.sh：把测试计数输出到 stdout（供门禁抓取）
+
+## 涉及提交
+
+| 提交 | 仓库 | 说明 |
+|---|---|---|
+| demo0001 | single-repo-service | 新增导出按钮 |
+</pre></details></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">verification.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># 验证记录 · 样例：订单导出按钮
+
+## 逐条对照
+
+| AC | 结论 | 证据 |
+|---|---|---|
+| AC-1 | 已实现 | 命令 ./scripts/test.sh 退出码 0，Tests run: 3（见 STATUS.json lastRun.records） |
+| AC-2 | 已实现 | 截图 screenshots/order-export.png，按钮位于工具栏右侧 |
+| AC-3 | 已实现 | coding_report.md 第 5-8 行列出改动文件清单 |
+
+## 结论
+
+- 总体结论：已实现
+- 阻断项：无
+- 基线豁免：无
+
+## 证据
+
+- 命令原文与输出尾部保存在 STATUS.json 的 lastRun.records 中
+</pre></details></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">APPROVALS.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># 确认记录 · 样例：订单导出按钮
+
+## 确认记录
+
+| 确认点 | 确认人 | 时间 | 结论 |
+|---|---|---|---|
+| 需求与判据 | 样例负责人 | 2026-01-01T09:00:00Z | 通过 |
+| 发布批准 | 样例负责人 | 2026-01-01T10:00:00Z | 通过 |
+</pre></details></li><li class="ok"><details class="doc"><summary>✓ <span class="mono">release/report.md</span> <span class="copy">查看全文</span></summary><pre class="docbody"># 发布报告 · 样例：订单导出按钮
+
+## 发布内容
+
+- 命令原文：./scripts/build.sh（退出码 0）
+- 产物部署至预发环境，静态资源 hash 已更新
+
+## 验证证据
+
+- ./scripts/test.sh 退出码 0，Tests run: 3
+- 真实页面访问：/order/list 返回 200，导出按钮可见
+
+## 观察窗口
+
+- 2026-01-01 10:00 至 2026-01-03 10:00（48 小时）
+- 关键指标：页面错误率 0%、导出点击 12 次、无用户反馈
+</pre></details></li></ul>
+          <p class="small muted">本阶段不涉及任务（需求/切分或发布收尾）</p>
+        </div>
+      </details></div>
+    <div class="progress"><div class="bar" style="width:0%"></div></div>
+    <div class="muted">任务进度：0/2 已完成（进行中 0，阻塞 0）</div>
+    <details class="graph"><summary>任务依赖图（连线=依赖，颜色=状态）</summary>
+      <pre class="mermaid">flowchart LR
+  subgraph single-repo-service
+    T-1[&quot;T-1 后端 张三&quot;]:::todo
+    T-2[&quot;T-2 后端 张三&quot;]:::todo
+  end
+  T-1 --&gt; T-2
+  classDef todo fill:#f3f4f6,stroke:#9ca3af,color:#374151
+  classDef doing fill:#fef3c7,stroke:#d97706,color:#78350f
+  classDef done fill:#d1fae5,stroke:#059669,color:#065f46
+  classDef blocked fill:#fee2e2,stroke:#dc2626,color:#7f1d1d</pre>
+    </details>
+    <div class="filterbar" data-for="2026-01-01-demo">
+      <span class="muted small">任务列表：</span>
+      <button type="button" class="fbtn on" data-filter="all">全部 2</button>
+      <button type="button" class="fbtn" data-filter="implementing">实现中 2</button>
+      <button type="button" class="fbtn" data-filter="tested">待验证 0</button>
+      <button type="button" class="fbtn" data-filter="verified">已验证 0</button>
+      <span class="fnote"></span>
+    </div><div class="tasks"><details class="task" data-task="T-1" data-stages="implementing">
+      <summary>
+        <span class="mono tid">T-1</span>
+        <span class="tag" style="background:#7c3aed">后端</span>
+        <span class="sum-repo">single-repo-service</span>
+        <span class="sum-status"><span class="dot" style="background:#6b7280"></span>待开始</span>
+        <span class="sum-owner">张三</span>
+        <span class="caret">点击展开</span>
+      </summary>
+      <div class="detail">
+        <dl>
+          <dt>对应验收标准</dt><dd>AC-1　判据：./scripts/test.sh 退出码 0 且 Tests run ≥ 1　类型：命令</dd>
+          <dt>验收命令</dt><dd class="mono">./scripts/test.sh</dd>
+          <dt>写入范围</dt><dd class="mono">src/pages/order/</dd>
+          <dt>依赖</dt><dd>无依赖，可直接开始</dd>
+          <dt>负责人</dt><dd>张三</dd>
+        </dl>
+      </div>
+    </details><details class="task" data-task="T-2" data-stages="implementing">
+      <summary>
+        <span class="mono tid">T-2</span>
+        <span class="tag" style="background:#7c3aed">后端</span>
+        <span class="sum-repo">single-repo-service</span>
+        <span class="sum-status"><span class="dot" style="background:#6b7280"></span>待开始</span>
+        <span class="sum-owner">张三</span>
+        <span class="caret">点击展开</span>
+      </summary>
+      <div class="detail">
+        <dl>
+          <dt>对应验收标准</dt><dd>AC-1　判据：./scripts/test.sh 退出码 0 且 Tests run ≥ 1　类型：命令</dd>
+          <dt>验收命令</dt><dd class="mono">./scripts/build.sh</dd>
+          <dt>写入范围</dt><dd class="mono">src/pages/order/</dd>
+          <dt>依赖</dt><dd>依赖 T-1 先完成（该依赖当前无明确负责人，建议在会话里确认）</dd>
+          <dt>负责人</dt><dd>张三</dd>
+        </dl>
+      </div>
+    </details></div>
+  </section>
+
+<footer>本文件是渲染产物（按需重算，不入库）。数据来源：变更状态、TASKS.md 的任务级状态、体检结论。
+<!-- Mermaid 渲染器：唯一外部依赖，且**失败时降级为纯文本图**（不联网/离线打开仍可用）。
+     若你的环境不能联网，图会以源码形式显示（仍是可读的文本），不是坏页面。 -->
+<script type="module">
+try {
+  const m = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
+  m.default.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' });
+  await m.default.run({ querySelector: 'pre.mermaid' });
+} catch (e) {
+  document.querySelectorAll('pre.mermaid').forEach((el) => {
+    el.insertAdjacentHTML('beforebegin',
+      '<p class="muted small">（未能加载图形渲染器 —— 下面是 Mermaid 源码，可直接复制到支持 Mermaid 的地方渲染）</p>');
+  });
+}
+</script>
+<script>
+/* 唯一的脚本：让"阶段芯片"与"任务列表"联动。
+   设计约束：① 不联网、不依赖外部库；② 禁用 JS 时信息仍完整可见（脚本只做显隐，不生成内容）。 */
+(function(){
+  function applyFilter(card, key){
+    var tasks = card.querySelectorAll('details.task');
+    var shown = 0;
+    tasks.forEach(function(t){
+      var stages = (t.getAttribute('data-stages') || '').split(',');
+      var ok = (key === 'all') || stages.indexOf(key) >= 0;
+      t.classList.toggle('hidden', !ok);
+      if (ok) shown++;
+    });
+    card.querySelectorAll('.fbtn').forEach(function(b){
+      b.classList.toggle('on', b.getAttribute('data-filter') === key);
+    });
+    var note = card.querySelector('.fnote');
+    if (note){
+      note.textContent = (key === 'all') ? '' :
+        (shown ? ('已过滤：' + shown + ' 个任务属该阶段') : '该阶段暂无任务');
+    }
+  }
+  document.querySelectorAll('.card').forEach(function(card){
+    var bar = card.querySelector('.filterbar');
+    if (!bar) return;
+    bar.addEventListener('click', function(e){
+      var b = e.target.closest('.fbtn');
+      if (!b) return;
+      applyFilter(card, b.getAttribute('data-filter'));
+    });
+    /* 点击阶段芯片：展开它的同时，把任务列表过滤到该阶段 */
+    card.querySelectorAll('details.st').forEach(function(st){
+      st.addEventListener('toggle', function(){
+        if (!st.open) return;
+        var key = st.getAttribute('data-stage') || 'all';
+        card.querySelectorAll('details.st').forEach(function(o){ if (o !== st) o.open = false; });
+        applyFilter(card, key);
+      });
+    });
+  });
+})();
+</script>
+</footer>
+</body></html>

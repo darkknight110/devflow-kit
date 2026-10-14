@@ -2003,7 +2003,52 @@ function sc58() {
 }
 
   sc57();
+/**
+ * SC59：**改了机制就必须同步操作指南** —— 靠人自觉必然漂移，所以由机器看守。
+ *
+ * 为什么是硬要求：真实踩到过 —— 命令增加到 28 个，操作指南只覆盖 21 个，
+ * 用户照着文档走会遇到"文档里没有的命令"。文档漂移是产品的**可信度**问题。
+ *
+ * 规则：每条 CLI 命令要么出现在操作指南的命令表里，要么在**显式豁免清单**里（带理由）。
+ * 不允许"没写也没登记"—— 那正是漂移发生的方式。
+ */
+function sc59() {
+  const cli = readFileSync(path.join(KIT_ROOT, 'scripts', 'cli.mjs'), 'utf8');
+  const commands = [...cli.matchAll(/^\s*case '([a-z][a-z-]*)':/gm)].map((m) => m[1]);
+  const uniq = [...new Set(commands)];
+
+  // 豁免清单：内部/被包装的命令。**必须写理由**（写不出理由就说明它该进文档）
+  const INTERNAL = {
+    'setup-hooks': 'setup 的内部步骤（用户应使用 setup）',
+  };
+
+  const guide = readFileSync(path.join(KIT_ROOT, 'docs', '00-quickstart.md'), 'utf8');
+  const missing = uniq.filter((c) => !INTERNAL[c] && !new RegExp(`\`${c}[\\s\`\\|]`).test(guide));
+
+  // 版本一致性：VERSION / package.json / spec/*.json 必须一致
+  const vVersion = readFileSync(path.join(KIT_ROOT, 'VERSION'), 'utf8').trim();
+  let vPkg = null;
+  try { vPkg = JSON.parse(readFileSync(path.join(KIT_ROOT, 'package.json'), 'utf8')).version; } catch { /* 忽略 */ }
+  const specDir = path.join(KIT_ROOT, 'spec');
+  const specVersions = new Set();
+  for (const f of readdirSync(specDir)) {
+    if (!f.endsWith('.json')) continue;
+    try { const j = JSON.parse(readFileSync(path.join(specDir, f), 'utf8')); if (j.version) specVersions.add(j.version); } catch { /* 忽略 */ }
+  }
+  const versionConsistent = vPkg === vVersion && specVersions.size === 1 && specVersions.has(vVersion);
+
+  // 指南必须说清「怎么拿到它」与「怎么装」—— 这是新手第一步，缺了就等于没指南
+  const hasOnboarding = /git clone.*devflow-kit/.test(guide) && /devflow setup/.test(guide);
+
+  record('SC59', '操作指南与实现同步：每条命令都有出处，版本号一致',
+    '每条 CLI 命令要么在指南命令表里、要么在带理由的豁免清单里；VERSION/package.json/spec 版本一致；指南含安装路径',
+    `命令数=${uniq.length} 未覆盖=${missing.join(',') || '无'} 版本一致=${versionConsistent} `
+    + `VERSION=${vVersion} pkg=${vPkg} spec=${[...specVersions].join(',')} 含安装=${hasOnboarding}`,
+    missing.length === 0 && versionConsistent && hasOnboarding);
+}
+
   sc58();
+  sc59();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

@@ -469,6 +469,41 @@ chmod +x scripts/test.sh
 
 ---
 
+## 附：全部命令一览
+
+**你不需要记这些** —— 在聊天里说人话就行。这张表是给"想精确控制"和排查问题用的。
+
+| 命令 | 用途 | 常用度 |
+|---|---|---|
+| `init --name <名>` | 接入项目（写 `devflow.json` 与门禁脚本骨架） | 每仓一次 |
+| `setup [--global\|--project]` | 装钩子（每仓）/ 装聊天技能（一次） | 每仓一次 |
+| `doctor` | 体检：门禁是否可信、配置是否可用（只读，给修法） | 常查 |
+| `standards` | 逐条判定基础标准（含如何自定义/覆盖） | 偶查 |
+| `architecture` | 生成仓级架构声明（技术栈/分层/ADR/约束） | 每仓一次 |
+| `new --date --slug --tier --title` | 新建变更 | 每变更一次 |
+| `clarify <变更> [--answer\|--pending]` | 需求澄清（必答项；未决不许进实现） | 每变更一次 |
+| `contract snapshot\|diff\|rules` | 契约冻结与破坏性判定 | 跨边界变更 |
+| `review <变更> [--point]` / `review --all` | 人工确认点的决策材料与签核 | 每变更 1–3 次 |
+| `fill <变更> --to <状态>` | 按模板补齐缺失产物（不覆盖已有） | 按需 |
+| `gate run <变更> [--check]` | 跑门禁并留证据（`--check` 只预检） | 频繁 |
+| `advance <变更> --to <状态>` | 推进状态（缺件/不合规会被拒） | 频繁 |
+| `task <变更> <T编号> --status/--owner/--note` | 任务级干预（阻塞必须给原因） | 按需 |
+| `history <变更> [--task T-2]` | 任务的"前世今生"（谁在何时改了什么） | 偶查 |
+| `start` | 你在哪、有哪些变更、下一步是谁的动作 | 常查 |
+| `status <变更> [--digest]` | 单变更状态（`--digest` 出固定摘要） | 常查 |
+| `view`（别名 `report`） | 生成可点击的单文件 HTML 视图（含图形） | 常查 |
+| `board [--port]` | 启动本地实时看板（只读，SSE 刷新） | 按需 |
+| `graph [--kind tasks\|flow\|stages]` | 输出 Mermaid 图（可贴进 PR） | 按需 |
+| `ci --platform <github\|gitlab>` | 生成 CI 配置（kit 自动从 GitHub 取） | 每仓一次 |
+| `workspace init\|add\|remove` | 多仓工作区（跨仓协作时用） | 多仓时一次 |
+| `archive [--go]` | 归档已完成变更（默认空跑） | 偶用 |
+| `adapters [--apply <栈>]` | 列出/检测技术栈适配器；`--apply` 只补缺失 | 接入/换栈 |
+| `migrate-storage` | 迁移旧版产物存储布局 | 老项目一次 |
+| `selfcheck` | 门禁体系自检（57+ 项） | 开发/升级后 |
+| `version` | 版本与 kit 位置 | 排查用 |
+
+> `report` 是 `view` 的历史别名（两者等价）；新写的脚本请用 `view`。
+
 ## 参考文档（需要细节时再看）
 
 | 文档 | 回答 |

@@ -8,7 +8,16 @@ printf '═══ 自检 ═══\n'
 if NO_COLOR=1 node "$KIT/scripts/selfcheck.mjs" | tail -2; then :; else FAIL=1; fi
 for s in verify-example verify-java-project verify-stacks verify-independent verify-human-loop; do
   printf '═══ %s ═══\n' "$s"
-  if bash "$KIT/examples/$s.sh" all 2>&1 | tail -1; then :; else FAIL=1; fi
+  # 失败时必须**显示细节**：只取尾行会把原因吞掉（实测在 CI 上只看到"失败"两个字，无法定位）
+  log="$(mktemp)"
+  if bash "$KIT/examples/$s.sh" all >"$log" 2>&1; then
+    tail -1 "$log"
+  else
+    FAIL=1
+    echo "  ✗ $s 失败 —— 最后 15 行："
+    tail -15 "$log" | sed 's/^/    /'
+  fi
+  rm -f "$log"
 done
 echo
 if [ "$FAIL" -eq 0 ]; then echo "全部验收通过（自检 + 五套端到端）"; exit 0; fi

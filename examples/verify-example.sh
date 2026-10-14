@@ -3,6 +3,13 @@
 # 第 1 期唯一的验收入口：一条命令、可复现、零人工。
 set -euo pipefail
 
+# 可移植的 sed -i：BSD/macOS 需要 `-i ''`，GNU/Linux 需要 `-i`。
+# 直接用 `sed -i ''` 在 Linux 上会把空串当成文件名 ⇒ CI 上必然失败（实测）。
+sedi() {
+  if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi
+}
+
+
 KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 EX="$KIT/examples/single-repo-service"
 DEVFLOW="node $KIT/scripts/cli.mjs"
@@ -247,7 +254,7 @@ if ( cd "$NAP" && "$KIT/bin/devflow" gate run 2026-10-13-first >/tmp/devflow-g1.
 else
   fail "门禁应当通过却失败"; sed -n '1,20p' /tmp/devflow-g1.log
 fi
-sed -i '' 's/Tests run: 5/Tests run: 0/' "$NAP/scripts/test.sh"
+sedi 's/Tests run: 5/Tests run: 0/' "$NAP/scripts/test.sh"
 if ( cd "$NAP" && "$KIT/bin/devflow" gate run 2026-10-13-first >/tmp/devflow-g2.log 2>&1 ); then
   fail "测试数为 0 竟然通过（假通过）"
 else

@@ -4,6 +4,13 @@
 # 用 --demo 变体：自包含、输出各栈真实形态，因此不要求本机装齐 Maven/pytest/Go。
 set -euo pipefail
 
+# 可移植的 sed -i：BSD/macOS 需要 `-i ''`，GNU/Linux 需要 `-i`。
+# 直接用 `sed -i ''` 在 Linux 上会把空串当成文件名 ⇒ CI 上必然失败（实测）。
+sedi() {
+  if sed --version >/dev/null 2>&1; then sed -i "$@"; else sed -i '' "$@"; fi
+}
+
+
 KIT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 DEVFLOW="$KIT/bin/devflow"
 FAILED=0
@@ -55,13 +62,13 @@ run_stack() {
       echo "  [NG] ${id}：门禁未通过"; sed -n '1,15p' /tmp/stack-gate.log; return 1
     fi
     # ⑤ 假通过防御：把计数改成 0 必须被拦下
-    sed -i '' -E 's/(Tests run: |Tests: +|)(12)( passed|, Failures| tests passed)/\112\3/' scripts/test.sh 2>/dev/null || true
+    sedi -E 's/(Tests run: |Tests: +|)(12)( passed|, Failures| tests passed)/\112\3/' scripts/test.sh 2>/dev/null || true
     cp scripts/test.sh /tmp/stack-test.bak
     case "$id" in
-      java-maven)    sed -i '' 's/Tests run: 12/Tests run: 0/' scripts/test.sh ;;
-      node-jest)     sed -i '' 's/Tests:       12 passed/Tests:       0 passed/' scripts/test.sh ;;
-      python-pytest) sed -i '' 's/12 passed/0 passed/' scripts/test.sh ;;
-      go-test)       sed -i '' "s/printf '%s tests passed\\\\n' 12/printf '%s tests passed\\\\n' 0/" scripts/test.sh ;;
+      java-maven)    sedi 's/Tests run: 12/Tests run: 0/' scripts/test.sh ;;
+      node-jest)     sedi 's/Tests:       12 passed/Tests:       0 passed/' scripts/test.sh ;;
+      python-pytest) sedi 's/12 passed/0 passed/' scripts/test.sh ;;
+      go-test)       sedi "s/printf '%s tests passed\\\\n' 12/printf '%s tests passed\\\\n' 0/" scripts/test.sh ;;
     esac
     if "$DEVFLOW" gate run 2026-10-13-first >/tmp/stack-gate0.log 2>&1; then
       echo "  [NG] ${id}：测试数为 0 竟然通过"; return 1

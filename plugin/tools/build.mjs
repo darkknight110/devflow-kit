@@ -8,7 +8,7 @@
  *
  * 依赖来源：复用 **DSH 自带的 esbuild**，不新增任何 npm 依赖（保持主仓零依赖）。
  */
-import { existsSync, mkdirSync, readdirSync, copyFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import path from 'node:path';
 import { createRequire } from 'node:module';
 import { pathToFileURL } from 'node:url';
@@ -58,22 +58,54 @@ if (!esbuildEntry) {
 }
 
 const mod = await import(pathToFileURL(esbuildEntry).href);
-// ESM 导入 esbuild 时，函数挂在 default 上（不同版本包装不同，两种都兼容）
 const esbuildBuild = typeof mod.build === 'function' ? mod.build
   : (mod.default && typeof mod.default.build === 'function' ? mod.default.build : null);
 if (!esbuildBuild) {
   process.stderr.write(`esbuild 导入成功但找不到 build 函数：${Object.keys(mod).join(',')}\n`);
   process.exit(2);
 }
+
+const PLUGIN_ID = JSON.parse(readFileSync(path.join(pluginRoot, 'package.json'), 'utf8')).name;
+const outFile = path.join(outDir, 'client.js');
+
+/**
+ * 产物形态必须与 dsh-context 的真实 client.js 一致（**这里踩过坑**）：
+ * 宿主用普通 <script> 加载 client.js，**不支持顶层 ESM** ——
+ * 第一版直接输出 `export default plugin`，浏览器报 `Unexpected token 'export'`，
+ * 导致整个 web boot 失败（1 entry did not activate）。
+ * 所以：esbuild 输出 CJS 给一个中间文件，我们自己用 __ModuleLoader__ 包起来。
+ */
+const tmpFile = path.join(outDir, '.client.cjs');
 await esbuildBuild({
   entryPoints: [path.join(pluginRoot, 'src', 'client.js')],
-  outfile: path.join(outDir, 'client.js'),
+  outfile: tmpFile,
   bundle: true,
-  format: 'esm',
+  // CommonJS：__ModuleLoader__ 的 factory 提供的是 require，不是 ESM import
+  format: 'cjs',
   platform: 'browser',
   target: 'es2022',
-  // react 由插件自带（与官方插件一致的做法），其余 DSH 包由宿主提供
-  external: ['@deepseek-ai/*'],
-  logLevel: 'info',
+  // React 由宿主 require 注入，不能内联（否则出现两份 React）
+  external: ['react', 'react-dom', 'react/jsx-runtime', '@deepseek-ai/*'],
+  logLevel: 'warning',
 });
-process.stdout.write(`✓ 已打包：${path.relative(pluginRoot, path.join(outDir, 'client.js'))}\n`);
+
+const bundled = readFileSync(tmpFile, 'utf8');
+rmSync(tmpFile, { force: true });
+
+const wrapped = [
+  '/* 由 devflow plugin/tools/build.mjs 生成；请勿手改。',
+  '   格式对齐 dsh-context 的真实 client.js：__ModuleLoader__ + factory(require)。 */',
+  'window.__ModuleLoader__.load({',
+  `\tid: ${JSON.stringify(PLUGIN_ID)},`,
+  '\tfactory: (require) => {',
+  '\t\tvar module = { exports: {} };',
+  '\t\tvar exports = module.exports;',
+  bundled.split('\n').map((l) => (l ? `\t\t${l}` : '')).join('\n'),
+  '\t\treturn module.exports.default || module.exports;',
+  '\t}',
+  '});',
+  '',
+].join('\n');
+
+writeFileSync(outFile, wrapped, 'utf8');
+process.stdout.write(`✓ 已打包：${path.relative(pluginRoot, outFile)}（${wrapped.length} 字节，__ModuleLoader__ 格式）\n`);

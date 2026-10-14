@@ -6,43 +6,43 @@
  *   · 看板的全部渲染、数据、刷新逻辑仍在 `devflow board`（单一事实源）；
  *   · **删掉本插件不影响任何工作流能力** —— 它只是可选的呈现方式。
  *
- * 契约来源（全部核对过真实源码，见 ./README.md 的取证记录）：
- *   · 标签页类型：ctx.sidebarRightTabs.register({ id, kind, title, ... })
- *   · 标签页内容：ctx.slots.inject('sidebar.right.pane.tab', () => ctx.slots.register({ name, key }, Body))
- *   · 每次注册都包在 ctx.effect(...) 里，随插件生命周期销毁
+ * 产物格式（照 dsh-context 的真实 client.js 对齐，**这里踩过坑**）：
+ *   · 宿主用普通 `<script>` 加载 client.js，**不支持 ESM** ⇒ 必须包成
+ *     `window.__ModuleLoader__.load({ id, factory })`（第一版用了 `export default`，
+ *     浏览器报 `Unexpected token 'export'`，导致整个 web boot 失败）；
+ *   · 插件必须是**对象** `{ name, inject, apply }`，不是函数；
+ *   · React 由宿主 `require` 注入，**不要内联**，否则会出现两份 React。
  *
- * 刻意不写 JSX：用宿主注入的 React.createElement，减少编译需求（只需一层打包）。
+ * 契约来源（核对过真实源码）：`ctx.sidebarRightTabs.register(...)` 与
+ * `ctx.slots.inject('sidebar.right.pane.tab', ...)`，都包在 `ctx.effect(...)` 里。
  */
 import { createElement as h } from 'react';
 
 const BOARD_URL = 'http://127.0.0.1:8787';
 const TAB_ID = 'devflow/board';
 
-/** 看板面板：一个懒加载 iframe（不打开就不请求，避免无谓的等待） */
+/** 看板面板：一个 iframe，指向 devflow board 的本地服务 */
 function BoardFrame() {
   return h('div', { style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column' } },
     h('iframe', {
       src: BOARD_URL,
       title: 'devflow 看板',
-      style: { flex: '1 1 auto', width: '100%', border: '0', background: '#0f172a' },
-      // 允许同源脚本即可；不给 allow-same-origin，避免内嵌页拿到 DSH 的源权限
+      style: { flex: '1 1 auto', width: '100%', border: '0', background: '#0b1120' },
+      // 不给 allow-same-origin：内嵌页拿不到 DSH 的源，降低风险
       sandbox: 'allow-scripts allow-popups allow-forms',
-      loading: 'lazy',
     }),
     h('div', {
-      style: { padding: '6px 10px', fontSize: '11px', opacity: 0.7, borderTop: '1px solid rgba(128,128,128,.25)' },
-    }, `看板地址：${BOARD_URL}　（未显示内容时，请在项目里运行 devflow board）`),
+      style: { padding: '6px 10px', fontSize: '11px', opacity: 0.72, borderTop: '1px solid rgba(128,128,128,.25)' },
+    }, `看板地址：${BOARD_URL}`),
   );
 }
 
-/** Cordis 客户端插件入口 */
-export default function devflowBoardPlugin(ctx) {
-  // ① 注册标签页类型：一个"按 kind 打开"的页面型标签（不需要 patterns）
+function apply(ctx) {
+  // ① 注册标签页类型（页面型：按 kind 打开，不需要 patterns）
   ctx.effect(() => ctx.sidebarRightTabs.register({
     id: TAB_ID,
     kind: 'devflow-board',
     title: () => 'devflow 看板',
-    // 页面型：没有 patterns，由 kind 打开
   }), 'devflow: board tab type');
 
   // ② 注册该标签页的内容
@@ -52,4 +52,12 @@ export default function devflowBoardPlugin(ctx) {
   }, BoardFrame)), 'devflow: board tab body');
 }
 
-export { BoardFrame };
+/** 插件对象：宿主按 name / inject / apply 三件套识别（不是函数导出） */
+const plugin = {
+  name: 'dsh-plugin-devflow',
+  inject: ['slots', 'sidebarRightTabs'],
+  apply,
+};
+
+export default plugin;
+export { plugin, BoardFrame };

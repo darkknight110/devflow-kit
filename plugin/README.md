@@ -84,14 +84,16 @@ Cannot validate installed package: dsh.bundle.patch must be a file path or a lis
 | 宿主入口 `lib/index.js` | ✅ `default` 是函数，模拟 cordis 调用**无异常** |
 | 客户端产物 `lib/client.js` | ✅ 80 KB、合法 ESM、含 `export default` |
 | 注册调用确实在产物里 | ✅ 含 `sidebarRightTabs` 与 `slots.inject` |
-| React 已内联（无 external import） | ✅ |
+| 客户端产物体积 | ✅ **2.7 KB**（React 走宿主 `require`，**不内联**） |
+| 产物格式 | ✅ `window.__ModuleLoader__.load({ id, factory })`，无顶层 `export` |
+| 模拟宿主加载 | ✅ factory 返回 `{name, inject, apply}`，`apply` 正确注册标签页类型与内容 |
 
 ## ⚠️ 尚未验证的边界（如实登记）
 
 | # | 未验证项 | 影响 |
 |---|---|---|
 | 1 | ~~`bundle` 格式~~ | ✅ **已修正**（见上，来自真实报错 + 本机已装插件对照） |
-| 2 | **端到端加载** | ⚠️ 仍未验证 —— 安装需要 pnpm 在 PATH 上，而本机没有（GUI 内部自带）。**"能在界面里显示"目前仍是设计推断** |
+| 2 | **端到端加载** | ⚠️ 有待你重启验证。**已修掉上一次导致 boot 失败的原因**（见下），并已做宿主加载器模拟 |
 | 3 | **iframe 是否被 CSP 允许** | DSH 界面里有 `iframe` 用法，机制可用；**是否允许指向 `http://127.0.0.1:8787` 未验证** |
 | 4 | **标签页如何被打开** | 页面型标签（无 `patterns`）**如何进入用户视野**（侧栏 guide？命令？）未验证 |
 
@@ -133,3 +135,26 @@ Cannot validate installed package: dsh.bundle.patch must be a file path or a lis
 另外 `dsh.compatibility.dshReleases` 目前只声明了两个版本
 （`0.1.5-rc.2` 与本机 GUI 用的 `0.2.0-rc.2`）。**DSH 升级后要补这一项**，
 否则会被判为不兼容而拒绝加载（本机 `dsh-better-sidebar`、`dshmarket` 就是这么被拦下的）。
+
+## 踩过的坑：客户端产物格式（第一次 boot 失败）
+
+第一次装完后启动失败：
+
+```
+web boot: 1 entry did not activate
+dsh-plugin-devflow: import failed
+renderer console: Uncaught SyntaxError: Unexpected token 'export'
+```
+
+**原因**：我把产物打成了 ESM（`export default plugin`），而宿主是用**普通 `<script>`**
+加载 `client.js` 的（路径 `dsh-app://app/plugins/??<name>/client.js`）—— **不支持顶层 ESM**。
+
+**修正**（照 `dsh-context` 的真实 `lib/client.js` 对齐，三处）：
+
+| # | 错误 | 正确做法 |
+|---|---|---|
+| 1 | `export default plugin` | 包成 `window.__ModuleLoader__.load({ id, factory: (require) => {…} })` |
+| 2 | 导出**函数** | 导出**对象** `{ name, inject, apply }` |
+| 3 | 把 React 打进产物 | React 由宿主 `require("react")` 注入 —— 内联会出现**两份 React** |
+
+修正后产物 **80 KB → 2.7 KB**。

@@ -56,6 +56,30 @@ devflow board          # 起一次，常驻
 | 失败排查 | 看 `~/.dsh/devflow-board.log`（宿主日志在 GUI 里看不到，所以写文件） |
 | **工作区范围** | **一个服务对应一个工作区**（启动时确定）。**换项目要换工作区，见下节** |
 
+## 档位：产物要求之外的"步数"也不同
+
+四个档位不只是**产物多少**的区别，**状态推进的步数**也不同 —— 依据是正典
+`spec/states.json` 的 `tiers[].skippableStates`：
+
+| 档位 | 必需产物 | 确认点 | 可跳过的状态 | 最短路 |
+|---|---|---|---|---|
+| `micro` | 无 | 0 | spec_ready, contracted, implementing, tested, verified | **1 步**：`draft → released` |
+| `light` | SPEC + coding_report + verification + APPROVALS + release | 1 | contracted | 5 步 |
+| `standard` | light 的 + TASKS | 2 | contracted | 6 步 |
+| `heavy` | standard 的 + CONTRACT | 3 | （无） | 7 步 |
+
+**规则**：只有当**起点与终点之间的每一个状态都可跳过**时，才允许一步跨过去；
+任一中间状态不可跳过 ⇒ **仍然拒绝**（状态机不会被绕过）。
+
+```bash
+devflow new --date 2026-10-14 --slug fix-copy --tier micro --title "改个文案" ...
+devflow advance 2026-10-14-fix-copy --to released     # 一步到位，0 产物 0 签字
+```
+
+> 说明：这条规则以前**没生效** —— `skippableStates` 在正典里写了，但代码从不读它（死字段），
+> 于是 micro 也要走 6 次推进。现已实现，并由 `examples/verify-tiers.sh` 双向断言守住
+> （既断言"能一步跨"，也断言"不可跳时必须拦"）。
+
 ## 面板显示「没有在运行」/「未选择工作区」怎么办
 
 **先分清两种提示**：

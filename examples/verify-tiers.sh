@@ -110,16 +110,21 @@ fi
 echo
 echo "== 3.5 最轻档必须真能走完（否则"微改动"名不副实） =="
 # micro 全程 0 产物、0 确认点；若走不完说明档位设计有洞
-for st in spec_ready implementing tested verified released; do
-  if ! $DF advance 2026-10-14-micro --to "$st" >/dev/null 2>&1; then
-    fail "micro 走不到 $st（最轻档应当能一路到 released）"
-    break
-  fi
-done
-if $DF status 2026-10-14-micro 2>/dev/null | grep -qE '已发布'; then
-  pass "micro 可一路走到 released（0 产物、0 确认点）"
+# micro 的可跳过状态（spec/states.json 的 skippableStates）必须**真的生效**：
+# 否则"改个文案"仍要 6 次推进 —— 正典声明了却没人读，就是死字段。
+if $DF advance 2026-10-14-micro --to released >/dev/null 2>&1 \
+   && $DF status 2026-10-14-micro 2>/dev/null | grep -qE '已发布'; then
+  pass "micro 一步 draft → released（skippableStates 生效，0 产物、0 确认点）"
 else
-  fail "micro 未能到达 released"
+  fail "micro 无法一步到 released（skippableStates 未生效）"
+fi
+
+# 反向断言：不可跳过的中间状态**必须**仍然被拦（否则等于取消了状态机）
+# light 的 skippableStates 只有 contracted ⇒ draft → tested 中间的 spec_ready/implementing 不可跳
+if $DF advance 2026-10-14-light --to tested >/dev/null 2>&1; then
+  fail "light 竟然允许 draft → tested（越过了不可跳过的中间状态）"
+else
+  pass "light 越过不可跳过的中间状态被拒（状态机仍然有效）"
 fi
 
 

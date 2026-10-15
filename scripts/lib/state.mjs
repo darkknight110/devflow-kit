@@ -154,7 +154,24 @@ export function advance({ projectRoot, itemId, target, kitSpec, config, cwd, for
   if (!kitSpec.states.states[target]) {
     return { ok: false, errors: [`未知目标状态：${target}`] };
   }
-  const legal = kitSpec.states.transitions.some((t) => t.from === current.state && t.to === target);
+  let legal = kitSpec.states.transitions.some((t) => t.from === current.state && t.to === target);
+
+  // 档位可跳过的状态（正典 tiers[].skippableStates）。
+  // 为什么要有这条：`micro`（改文案）本应最轻，却仍被要求走 6 次推进 ——
+  // 而正典早就声明了它可以跳过 spec_ready…verified。此前这个字段**代码从未读取**（死字段）。
+  // 规则：**只有当"起点与终点之间的每一个状态"都可跳过时**，才允许一步跨过去；
+  //       任一中间状态不可跳过 ⇒ 仍然拒绝（否则就等于取消了状态机）。
+  if (!legal && !force) {
+    const order = Object.keys(kitSpec.states.states);
+    const fromIdx = order.indexOf(current.state);
+    const toIdx = order.indexOf(target);
+    if (fromIdx >= 0 && toIdx > fromIdx) {
+      const tier = (readStatus(current.itemDir) || {}).tier || 'standard';
+      const skippable = new Set((kitSpec.states.tiers[tier] || {}).skippableStates || []);
+      const between = order.slice(fromIdx + 1, toIdx);
+      if (between.length && between.every((st) => skippable.has(st))) legal = true;
+    }
+  }
   if (!legal && !force) {
     return { ok: false, errors: [`非法状态转移：${current.state} → ${target}`], blockedBy: [] };
   }

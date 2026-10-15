@@ -1,6 +1,6 @@
 {
   "$comment": "角色与权限矩阵正典。约束分两类：enforcement=machine（引擎机械强制，见 doctor/D12）与 enforcement=convention（工具无法强制，依靠执行者自觉，产品不对其做任何『通过』暗示）。详见 docs/04-standards.md 第五节。",
-  "version": "1.20.0",
+  "version": "1.21.0",
   "roles": {
     "orchestrator": {
       "name": "编排者",
@@ -169,5 +169,5 @@
       "record": "APPROVALS.md"
     }
   ],
-  "$schemaVersion": "1.20.0"
+  "$schemaVersion": "1.21.0"
 }

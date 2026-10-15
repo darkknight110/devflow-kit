@@ -2234,7 +2234,61 @@ function sc64() {
 }
 
   sc63();
+/**
+ * SC65：**已登记债务的门禁不得阻断推进**（但要保持可见）。
+ *
+ * 为什么是硬要求：`baseline_debt` 的语义是"这笔失败是已知存量，不挡路但要看得见"
+ * —— doctor 的修法原文就是"必须显式登记 baseline_debt 才放行"。
+ * 而 `advance` 曾**完全忽略该字段**：门禁声明了债务照样阻断 ⇒ 有债的仓什么也推不动，
+ * 声明债务变得毫无意义（实测：consumer-mp 的 lint/type-check 都声明了债务，仍推不动）。
+ */
+function sc65() {
+  const root = tmpProject('debt');
+  write(root, 'package.json', '{"name":"d"}\n', 0o644);
+  write(root, 'devflow.json', JSON.stringify({
+    devflow: { project: 'd', kit: '^1.21.0' },
+    gates: {
+      build: { run: './scripts/ok.sh' },
+      // 声明了债务的失败门禁：不应阻断
+      lint: { run: './scripts/bad.sh', baseline_debt: { reason: '存量 lint 债', clear_when: 'eslint 报 0' } },
+    },
+  }), 0o644);
+  write(root, 'scripts/ok.sh', '#!/usr/bin/env bash\necho ok\n', 0o755);
+  write(root, 'scripts/bad.sh', '#!/usr/bin/env bash\necho "1 error"\nexit 1\n', 0o755);
+  const cli = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  execFileSync(process.execPath, [cli, 'init', '--name', 'd'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'new', '--date', '2026-10-15', '--slug', 'm', '--tier', 'micro',
+    '--title', 't', '--owner', 'o', '--repos', 'd'], { cwd: root, stdio: 'pipe' });
+
+  const run = (args) => spawnSync(process.execPath, [cli, ...args], { cwd: root, encoding: 'utf8' });
+  // 先跑一次门禁留下记录：G2 要求"有可核的门禁记录"，否则会被 G2 拦（与本条要测的债务语义无关）
+  run(['gate', 'run', '2026-10-15-m', '--to', 'released']);
+  // ① 声明债务 ⇒ 可以推进（这是本条的核心）
+  const adv = run(['advance', '2026-10-15-m', '--to', 'released']);
+  const allowed = adv.status === 0 && /已推进/.test(adv.stdout);
+  // ② 但门禁输出里**仍然可见**（不能因为放行就藏起来）
+  const gate = run(['gate', 'run', '2026-10-15-m', '--to', 'released', '--check']);
+  const visible = /lint/.test(gate.stdout) && /失败|✗/.test(gate.stdout);
+  // ③ 可追溯：事件流里必须留下"本次有豁免项"的痕迹（gatesVerdict.exempt），
+  //    这样事后能看出"这次是在有债务的情况下放行的"。
+  let hist = '';
+  try { hist = run(['history', '2026-10-15-m', '--json']).stdout; } catch { /* 忽略 */ }
+  const traced = (() => {
+    try {
+      const evs = JSON.parse(hist).events || [];
+      return evs.some((e) => e.gatesVerdict && Number(e.gatesVerdict.exempt) >= 1);
+    } catch { return false; }
+  })();
+
+  record('SC65', '已登记债务的门禁不阻断推进，但保持可见且可追溯',
+    'baseline_debt 声明的门禁失败时：advance 放行；gate 输出仍显示失败；history 记录 debtGates',
+    `放行=${allowed} 仍可见=${visible} 可追溯(豁免计数)=${traced}`,
+    allowed && visible && traced);
+  rmSync(root, { recursive: true, force: true });
+}
+
   sc64();
+  sc65();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

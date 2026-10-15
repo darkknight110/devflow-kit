@@ -178,7 +178,24 @@ export function advance({ projectRoot, itemId, target, kitSpec, config, cwd, for
   // ★ 关键：按「目标状态」判定门禁，而不是当前状态
   const targetEval = evaluateItem({ projectRoot: projectRoot, itemId, kitSpec, config, cwd, stateOverride: target });
   if (!targetEval.ok) return { ok: false, blockedBy: [], errors: targetEval.errors };
-  const blocking = targetEval.gates.filter((g) => g.verdict === 'blocked' || g.verdict === 'fail').map((g) => ({ gate: g.gate, notes: g.notes }));
+  // 已登记债务的门禁**不阻断推进**，但仍在输出里可见（显示为"削弱/豁免"）。
+  //
+  // 为什么：`baseline_debt` 的语义是"这笔失败是**已知存量**，不要挡路，但要一直看得见"
+  // （doctor 的修法原文就是"必须显式登记 baseline_debt 才放行"）。
+  // 而这里此前**完全忽略该字段** ⇒ 有债的仓什么也推不动 ⇒ 声明债务变得毫无意义。
+  // 注意（如实登记的局限）：债务包装只看"这门禁是否失败"，**不看失败是否变严重** ——
+  //   故 clear_when 必须具体（如"eslint 报 0 errors"），并靠定期复查收敛。
+  const debtGates = new Set(
+    Object.entries(config?.gates || {})
+      .filter(([, def]) => def && (def.baseline_exempt || def.baseline_debt))
+      .map(([name]) => name),
+  );
+  const blocking = targetEval.gates
+    .filter((g) => (g.verdict === 'blocked' || g.verdict === 'fail') && !debtGates.has(g.gate))
+    .map((g) => ({ gate: g.gate, notes: g.notes }));
+  // 说明：正常路径下，带负向对照且登记了债务的门禁会被判 `fail`（见 gate.mjs），
+  // 无负向对照的判 `exempt`。上面这一步只做**防御性放行**：无论它被判成哪种，
+  // 只要登记了债务就不阻断（债务的可见性由 gate 输出与 gatesVerdict 保证）。
   if (blocking.length && !force) {
     return { ok: false, blockedBy: blocking, errors: [`门禁未通过，拒绝推进到 ${target}`] };
   }

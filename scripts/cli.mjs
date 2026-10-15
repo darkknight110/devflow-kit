@@ -159,6 +159,36 @@ function localTime(v, withSec = true) {
   return withSec ? `${base}:${p(d.getSeconds())}` : base;
 }
 
+/**
+ * 已登记的项目/工作区（用户级）。
+ *
+ * 为什么需要：插件在别人机器上**无从知道**用户有哪些项目 ——
+ * 以前靠"猜候选目录"，猜不到就起不来。改为在 `init`/`setup` 时**主动登记**，
+ * 看板的 `/api/roots` 就能列出"你自己的项目"，用户从下拉里选即可。
+ */
+function rememberProject(root) {
+  try {
+    const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+    const dirs = [dshHome, path.join(os.homedir(), '.config', 'devflow')];
+    for (const dir of dirs) {
+      try {
+        mkdirSync(dir, { recursive: true });
+        const f = path.join(dir, 'devflow-kit.json');
+        let cfg = {};
+        try { cfg = JSON.parse(readFileSync(f, 'utf8')); } catch { /* 首次 */ }
+        const list = new Set(cfg.knownProjects || []);
+        list.add(path.resolve(root));
+        cfg.knownProjects = [...list].sort();
+        cfg.kit = KIT_ROOT;
+        cfg.updatedAt = new Date().toISOString();
+        writeFileSync(f, `${JSON.stringify(cfg, null, 2)}\n`, 'utf8');
+        return true;
+      } catch { /* 换下一个位置 */ }
+    }
+  } catch { /* 登记失败不影响主流程 */ }
+  return false;
+}
+
 function resolveProject(flags, opts = {}) {
   if (flags.root) {
     const root = path.resolve(String(flags.root));
@@ -522,6 +552,11 @@ exit 1
       process.stderr.write(`${paint('⚠', 'yellow')} 适配器应用失败：${error.message}\n`);
     }
   }
+
+  // 登记到用户级清单：看板的面板下拉要列出用户自己的项目
+
+  try { rememberProject(root); } catch { /* 忽略 */ }
+
 
   out(flags, [
     `${paint('devflow init', 'bold')}  项目：${projectName}`,
@@ -1767,18 +1802,23 @@ function cmdBoard(flags) {
   // 从任意目录启动时（插件在宿主里起服务就会这样）向上找项目/工作区根。
   // 不这样做插件只能猜——它会猜成插件自己的目录（实测踩到）。
   if (!root) root = discoverProjectRoot(process.cwd());
+  // 找不到根**不再直接失败**：照常起服务，面板会提示"选择工作区"（下拉里有你登记过的项目）。
+  // 为什么：插件在别人机器上常常找不到项目（kit 在家目录、cwd 是宿主目录），
+  // 若此时 die，面板就永远是"未启动"—— 用户只看到一个坏掉的面板，而不是"去选个项目"。
   if (!root) {
-    die('既不是 devflow 项目，也不是多仓工作区（已在当前目录及其上级查找）。\n'
-      + '  · 项目：先 devflow init\n  · 工作区：在根目录 devflow workspace init\n'
-      + '  · 也可显式指定：devflow board --root <项目根>', 2);
+    process.stdout.write(`${paint('—', 'yellow')} 未找到项目/工作区：以「待选工作区」模式启动\n`
+      + '    在面板右上角选择工作区，或先在本项目里跑 devflow init\n');
   }
+  // 解析到根就登记一次：老项目第一次看看板即进入面板下拉，无需额外操作
+  if (root) { try { rememberProject(root); } catch { /* 忽略 */ } }
+
   const port = Number(flags.port || process.env.DEVFLOW_BOARD_PORT || 8787);
   const intervalMs = Number(flags.interval || 2000);
   if (!Number.isInteger(port) || port < 1024 || port > 65535) {
     die(`无效端口：${flags.port}\n  建议 1024–65535（如 --port 8787）`, 2);
   }
   out(flags, [
-    `${paint('devflow board', 'bold')}  ${loaded.config?.devflow?.project || path.basename(root)}`,
+    `${paint('devflow board', 'bold')}  ${loaded.config?.devflow?.project || (root ? path.basename(root) : '（未选择工作区）')}`,
     '  正在启动本地看板（只读）…',
     `  提示：服务只监听 127.0.0.1，不对外暴露；按 Ctrl-C 停止。`,
   ].join('\n'));
@@ -2517,6 +2557,9 @@ function cmdSetupHooks(flags, opts = {}) {
       installed.push(`commit-msg → ${path.relative(root, validator)}（提交信息规范）`);
     } catch (e) {
       // 平台不支持软链时退回复制
+      // 登记到用户级清单（看板面板的下拉要列出用户自己的项目）
+      try { rememberProject(root); } catch { /* 忽略 */ }
+
       writeFileSync(target, `#!/usr/bin/env node\nimport('${validator.replace(/'/g, "\\'")}');\n`, { mode: 0o755 });
       installed.push(`commit-msg（复制式安装：${e.message}）`);
     }

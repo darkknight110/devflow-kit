@@ -157,6 +157,22 @@ export function discoverProjectRoot(startDir = process.cwd(), maxUp = 8) {
 }
 
 export function collectBoardState(projectRoot, opts = {}) {
+  // 允许**没有根**：插件在别人的机器上往往找不到项目（kit 在家目录、cwd 是宿主目录）。
+  // 以前这种情况直接启动失败 ⇒ 面板永远"未启动"。正确做法是**照常起服务**，
+  // 返回一个空状态，让用户在面板里**选工作区**（/api/roots 提供候选）。
+  if (!projectRoot || !existsSync(projectRoot)) {
+    return {
+      generatedAt: new Date().toISOString(),
+      project: '（未选择工作区）',
+      projectRoot: null,
+      workspace: null,
+      changes: [],
+      stageCounts: ['draft', 'spec_ready', 'contracted', 'implementing', 'tested', 'verified', 'released']
+        .map((state) => ({ state, count: 0 })),
+      totals: { changes: 0, tasks: 0, done: 0, blocked: 0, doing: 0 },
+      needsRoot: true,
+    };
+  }
   const ids = [];
   for (const dir of [localItemsDir(projectRoot), itemsDir(projectRoot)]) {
     try {
@@ -338,6 +354,9 @@ export function renderBoardHtml(projectName) {
  .sec{display:flex; align-items:baseline; gap:10px; margin:20px 0 10px}
  .sec>span{font-size:13px; font-weight:640; letter-spacing:.3px}
  .sec>i{font-style:normal; font-size:11.5px; color:var(--mut)}
+ .needroot{margin:14px 26px 0; padding:11px 14px; border-radius:10px; font-size:12.5px;
+   background:rgba(240,161,50,.12); border:1px solid rgba(240,161,50,.4); color:#f4d19b}
+ .needroot code{background:rgba(255,255,255,.08); padding:1px 5px; border-radius:4px}
  .empty{padding:18px; text-align:center; color:var(--mut); font-size:12.5px;
    border:1px dashed var(--bd); border-radius:10px; background:rgba(255,255,255,.015)}
  footer{padding:14px 26px 26px; color:var(--mut); font-size:11.5px}
@@ -360,6 +379,7 @@ export function renderBoardHtml(projectName) {
   </div>
   <div class="live" style="margin-left:auto"><span class="muted">更新于</span> <span id="at">—</span></div>
 </header>
+<div id="needRoot" class="needroot" style="display:none"></div>
 <div class="stats" id="stats"></div>
 <main>
   <div class="sec"><span>任务看板</span><i>按状态分栏 · 点卡片看「前世今生」</i></div>
@@ -482,6 +502,15 @@ function openChange(itemId){
 }
 function render(s){
   STATE = s;
+  // 没有工作区时给出**明确指引**（而不是显示一个空看板让人以为坏了）
+  const bar = document.getElementById('needRoot');
+  if (bar) {
+    if (s.needsRoot) {
+      bar.style.display = '';
+      bar.innerHTML = '未选择工作区 —— 请在右上角选择，或先在该项目里运行一次 <code>devflow init</code>。'
+        + '（下拉里会列出你登记过的项目）';
+    } else { bar.style.display = 'none'; }
+  }
   drawStats(s); drawLanes(s);
   document.getElementById('at').textContent = fmtLocal(s.generatedAt);
   // 回显**实际服务的根**：切错工作区时能立刻看出来，而不是默默显示别人的数据
@@ -551,11 +580,12 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
   const MARKERS = ['.devflow', 'devflow.json', 'devflow.workspace.json'];
   const isRoot = (d) => Boolean(d) && existsSync(d) && MARKERS.some((x) => existsSync(path.join(d, x)));
   function resolveRoot(candidate) {
-    if (!candidate) return defaultRoot;
+    if (!candidate) return isRoot(defaultRoot) ? defaultRoot : null;
     try {
       const abs = path.resolve(String(candidate));
-      return isRoot(abs) ? abs : defaultRoot;
-    } catch { return defaultRoot; }
+      if (isRoot(abs)) return abs;
+      return isRoot(defaultRoot) ? defaultRoot : null;   // 无效候选：回落默认（可能为 null）
+    } catch { return isRoot(defaultRoot) ? defaultRoot : null; }
   }
 
   /** 已知工作区候选：默认根本身 + 它的兄弟目录 + 常见位置（供面板下拉用） */
@@ -564,8 +594,22 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
     const add = (d, name) => { if (isRoot(d)) out.set(d, name || path.basename(d)); };
     add(defaultRoot);
 
-    // ① 工作区的**成员仓**：这才是"在项目之间切换"的实际诉求
+    // ① **用户登记过的项目**（devflow init / setup 时写入）—— 这是别人机器上最可靠的来源：
+    //    插件猜不到用户有哪些项目，但用户自己跑过 init 的项目在这里。
+    // 必须与写入方（rememberProject）**同一套位置**：它也尊重 DSH_HOME。
+    // 只读 ~/.dsh 会导致"写进去了却列不出来"（实测踩到）。
+    const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+    for (const f of [path.join(dshHome, 'devflow-kit.json'),
+                     path.join(os.homedir(), '.config', 'devflow', 'config.json')]) {
+      try {
+        const cfg = JSON.parse(readFileSync(f, 'utf8'));
+        for (const p of cfg.knownProjects || []) add(p);
+      } catch { /* 无此文件 */ }
+    }
+
+    // ② 工作区的**成员仓**：这才是"在项目之间切换"的实际诉求
     try {
+      if (!defaultRoot) throw new Error('no root');
       const wsFile = path.join(defaultRoot, 'devflow.workspace.json');
       if (existsSync(wsFile)) {
         const ws = JSON.parse(readFileSync(wsFile, 'utf8'));
@@ -573,8 +617,9 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
       }
     } catch { /* 忽略 */ }
 
-    // ② 兄弟目录里像项目/工作区 的（多工作区并排时的另一处来源）
+    // ③ 兄弟目录里像项目/工作区 的（多工作区并排时的另一处来源）
     try {
+      if (!defaultRoot) throw new Error('no root');
       const parent = path.dirname(defaultRoot);
       for (const name of readdirSync(parent)) {
         const d = path.join(parent, name);
@@ -624,7 +669,7 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
     const url = new URL(req.url, `http://127.0.0.1:${port}`);
     if (url.pathname === '/' || url.pathname === '/index.html') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(renderBoardHtml(path.basename(defaultRoot)));
+      res.end(renderBoardHtml(defaultRoot ? path.basename(defaultRoot) : '（未选择工作区）'));
       return;
     }
     if (url.pathname === '/api/roots') {

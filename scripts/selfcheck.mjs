@@ -2140,7 +2140,9 @@ function sc61() {
 function sc62() {
   const src = readFileSync(path.join(KIT_ROOT, 'scripts', 'lib', 'board.mjs'), 'utf8');
   const hasResolve = /function resolveRoot\(/.test(src);
-  const validates = /MARKERS = \['\.devflow'/.test(src) && /isRoot\(abs\) \? abs : defaultRoot/.test(src);
+  // 无效候选必须回退（且默认根允许为空 ⇒ 走"待选工作区"模式，而不是崩或任意读）
+  const validates = /MARKERS = \['\.devflow'/.test(src) && /isRoot\(abs\)/.test(src)
+    && /isRoot\(defaultRoot\) \? defaultRoot : null/.test(src);
   const perRequest = /url\.searchParams\.get\('root'\)/.test(src);
   const rootsApi = /'\/api\/roots'/.test(src);
   // 服务端必须按订阅的根分别推送（否则切换后收到别人的数据）

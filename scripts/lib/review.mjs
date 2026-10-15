@@ -92,7 +92,14 @@ export function reviewPack({ itemId, tier, point, spec, tasks, verification, con
     if (has(verification?.raw) && !covered.length) {
       blockers.push('verification.md 里没有**真实的**逐条结论（模板占位不算）—— 没有验证证据就不能批准发布');
     }
-    if (unverified.length) blockers.push(`仍有 ${unverified.length} 项未验证（${unverified.map((u) => u.ac || u).join('、')}）`);
+    // 未验证项本身可以存在（模板允许"已知未验、接受风险"），但**未接受风险的必须阻断**。
+    // 判定顺序要紧：先看"不接受"，否则会被"接受"子串误判。
+    const riskOpen = unverified.filter((u) => {
+      const r = String(u.risk || '');
+      if (/不接受/.test(r)) return true;
+      return !/接受/.test(r);
+    });
+    if (riskOpen.length) blockers.push(`仍有 ${riskOpen.length} 项未验证且未接受风险（${riskOpen.map((u) => u.ac || u).join('、')}）`);
     if (covered.length) {
       const acs = spec?.acceptanceCriteria || [];
       const missed = acs.map((a) => a.id).filter((id) => !covered.some((v) => String(v.ac).includes(String(id))));

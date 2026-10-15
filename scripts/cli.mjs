@@ -46,7 +46,7 @@ import { normalizeContract, diffContracts, renderDiff } from './lib/contract.mjs
 import { loadStandards, checkStandards } from './lib/standards.mjs';
 import { renderTemplate, TEMPLATE_FILES } from './lib/template.mjs';
 import { loadAdapters, detectAdapters, applyAdapter, auditAdapterRegex } from './lib/adapter.mjs';
-import { dirSizeKb, exists, readText, parseAcceptanceCriteria, parseVerification, parseApprovals, isRealValue } from './lib/checks.mjs';
+import { dirSizeKb, exists, readText, parseAcceptanceCriteria, parseVerification, parseUnverifiedItems, parseApprovals, isRealValue } from './lib/checks.mjs';
 import { runSelfcheck } from './selfcheck.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
@@ -1524,7 +1524,12 @@ function buildReviewPack(root, itemId, point, flags) {
     const t = read(['TASKS.md']);
     return parseTasks(t);
   })();
-  const verification = { raw: verRaw, items: parseVerification(verRaw).filter((v) => isRealValue(v.conclusion)), unverified: [] };
+  const verification = {
+    raw: verRaw,
+    items: parseVerification(verRaw).filter((v) => isRealValue(v.conclusion)),
+    // 未验证项必须真的解析出来：此前硬编码为 []，导致发布材料永远报「未验证项：0」（详见 parseUnverifiedItems）
+    unverified: parseUnverifiedItems(verRaw),
+  };
   // 未验证项表
   const uv = /##\s*未验证项[\s\S]*?\n((?:\|.*\n)+)/.exec(verRaw);
   if (uv) {

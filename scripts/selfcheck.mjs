@@ -2288,7 +2288,53 @@ function sc65() {
 }
 
   sc64();
+/**
+ * SC66：**未验证项必须从 verification.md 真的解析出来**，不得硬编码为空。
+ *
+ * 为什么是硬要求：review 侧曾把这个列表写成 `unverified: []`，
+ * 于是发布材料永远显示「未验证项：0」，`仍有 N 项未验证` 这条阻断**永不触发**。
+ * 实测：AC-2 明明标着未验证，材料却说 0 项 —— **未验证项被漏报是发布决策里最危险的失真**。
+ */
+function sc66() {
+  const root = tmpProject('unver');
+  write(root, 'package.json', '{"name":"u"}\n', 0o644);
+  write(root, 'devflow.json', JSON.stringify({
+    devflow: { project: 'u', kit: '^1.22.0' },
+    gates: { build: { run: './scripts/ok.sh' } },
+  }), 0o644);
+  write(root, 'scripts/ok.sh', '#!/usr/bin/env bash\necho ok\n', 0o755);
+  const cli = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  execFileSync(process.execPath, [cli, 'init', '--name', 'u'], { cwd: root, stdio: 'pipe' });
+  execFileSync(process.execPath, [cli, 'new', '--date', '2026-10-15', '--slug', 'u1', '--tier', 'standard',
+    '--title', 't', '--owner', 'o', '--repos', 'u'], { cwd: root, stdio: 'pipe' });
+
+  // 写一份"AC-1 已通过、AC-2 未验证"的验证记录
+  const itemDir = path.join(root, '.devflow', 'items', '2026-10-15-u1');
+  const vp = path.join(itemDir, 'verification.md');
+  const src = readFileSync(vp, 'utf8')
+    .replace('| AC-1 | 已通过 / 未通过 / 未验证 |', '| AC-1 | 已通过 | exit=0 |')
+    .replace('| AC-2 | 已通过 / 未通过 / 未验证 |', '| AC-2 | **未验证** | 需真机画面确认 |')
+    .replace('| （哪一项没验） | （环境受限 / 缺设备 / 缺时间） | （需要什么条件） | 接受 / 不接受 |',
+             '| AC-2（画面） | 缺真机 | 开发者工具确认 | 待判定 |');
+  writeFileSync(vp, src, 'utf8');
+
+  const out = spawnSync(process.execPath, [cli, 'review', '2026-10-15-u1', '--point', '发布批准'],
+    { cwd: root, encoding: 'utf8' }).stdout;
+  // ① 未验证项必须被数出来（不能是 0）
+  const counted = /未验证项：([1-9]\d*)/.test(out);
+  // ② 未接受风险 ⇒ 必须阻断签核
+  const reports = /未验证项：1/.test(out);
+  const blocks = /暂不可签核/.test(out) && /未接受风险/.test(out);
+
+  record('SC66', '未验证项必须被真实解析并影响发布签核结论',
+    'verification.md 里标了未验证 ⇒ review 必须报出该项，且未接受风险时阻断签核',
+    `计数正确=${counted} 报出1项=${reports} 阻断=${blocks}`,
+    counted && reports && blocks);
+  rmSync(root, { recursive: true, force: true });
+}
+
   sc65();
+  sc66();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

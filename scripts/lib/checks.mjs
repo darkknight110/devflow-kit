@@ -150,6 +150,33 @@ export function parseAcceptanceCriteria(markdown) {
 }
 
 /** 逐条对照表（验证记录）→ [{ AC, 结论, 证据 }] */
+/**
+ * 解析 verification.md 的「未验证项」表。
+ *
+ * 为什么单独有这个函数：`parseVerification` 只解析**逐条对照**表，
+ * 而未验证项在另一张表里。此前 review 侧把这个列表**硬编码成 `[]`**
+ * ⇒ 发布材料永远显示"未验证项：0"，`仍有 N 项未验证` 这条阻断**永不触发**
+ * （实测：AC-2 明明标着未验证，材料却说 0 项）。未验证项被漏报是发布决策里最危险的一种失真。
+ */
+export function parseUnverifiedItems(markdown) {
+  const section = findSection(markdown, ['未验证项']);
+  if (!section) return [];
+  const out = [];
+  for (const table of tables(section.body)) {
+    for (const row of table.rows) {
+      const ac = cell(row, table.header, '未验证项') || cell(row, table.header, 'AC');
+      if (!ac) continue;
+      out.push({
+        ac,
+        reason: cell(row, table.header, '原因'),
+        how: cell(row, table.header, '如何补验证'),
+        risk: cell(row, table.header, '是否接受风险'),
+      });
+    }
+  }
+  return out;
+}
+
 export function parseVerification(markdown) {
   const section = findSection(markdown, ['逐条对照']);
   if (!section) return [];

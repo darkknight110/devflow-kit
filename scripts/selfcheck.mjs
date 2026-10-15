@@ -2022,7 +2022,13 @@ function sc59() {
     'setup-hooks': 'setup 的内部步骤（用户应使用 setup）',
   };
 
-  const guide = readFileSync(path.join(KIT_ROOT, 'docs', '00-quickstart.md'), 'utf8');
+  // 命令可以写在主线或进阶文档里；两处合起来必须覆盖全部命令。
+  // 为什么改为并集：指南已重构为「主线 + 进阶」，命令表移到进阶，
+  // 若只查主线会导致这条自检**误报**（而误报会让人去放宽断言，是更坏的结果）。
+  const guideFiles = ['00-quickstart.md', '08-advanced.md']
+    .map((f) => path.join(KIT_ROOT, 'docs', f));
+  const guide = guideFiles.filter((f) => existsSync(f))
+    .map((f) => readFileSync(f, 'utf8')).join('\n');
   const missing = uniq.filter((c) => !INTERNAL[c] && !new RegExp(`\`${c}[\\s\`\\|]`).test(guide));
 
   // 版本一致性：VERSION / package.json / spec/*.json 必须一致
@@ -2038,7 +2044,9 @@ function sc59() {
   const versionConsistent = vPkg === vVersion && specVersions.size === 1 && specVersions.has(vVersion);
 
   // 指南必须说清「怎么拿到它」与「怎么装」—— 这是新手第一步，缺了就等于没指南
-  const hasOnboarding = /git clone.*devflow-kit/.test(guide) && /devflow setup/.test(guide);
+  // 安装路径必须出现在**主线**（新手只看主线；放进阶等于没有）
+  const quickstart = readFileSync(path.join(KIT_ROOT, 'docs', '00-quickstart.md'), 'utf8');
+  const hasOnboarding = /git clone.*devflow-kit/.test(quickstart) && /devflow setup/.test(quickstart);
 
   record('SC59', '操作指南与实现同步：每条命令都有出处，版本号一致',
     '每条 CLI 命令要么在指南命令表里、要么在带理由的豁免清单里；VERSION/package.json/spec 版本一致；指南含安装路径',
@@ -2148,7 +2156,51 @@ function sc62() {
 }
 
   sc61();
+/**
+ * SC63：文档里的**内部链接必须能点开**（文件存在 + 锚点存在）。
+ *
+ * 为什么需要：指南已拆成「主线 + 进阶」，跨文件链接变多；
+ * 锚点写错会变成死链，而**死链是静默的** —— 读者点不动却没人知道。
+ * 锚点算法按 GitHub 规则：小写、去标点、空格转连字符。
+ */
+function sc63() {
+  const docsDir = path.join(KIT_ROOT, 'docs');
+  const files = readdirSync(docsDir).filter((f) => f.endsWith('.md'));
+  const read = (f) => readFileSync(path.join(docsDir, f), 'utf8');
+
+  /** GitHub 风格锚点 */
+  const anchorOf = (heading) => heading.trim().toLowerCase()
+    .replace(/[（）()：:，,。.、/\\|"'`？?！!［\]\[【】《》—－-]/g, '')
+    .replace(/\s+/g, '-');
+
+  const headingsOf = (f) => [...read(f).matchAll(/^#{1,6}\s+(.+)$/gm)].map((m) => anchorOf(m[1]));
+  const cache = {};
+  const anchors = (f) => (cache[f] = cache[f] || headingsOf(f));
+
+  const broken = [];
+  for (const f of files) {
+    const body = read(f);
+    for (const m of body.matchAll(/\]\(([^)]+\.md)(?:#([^)]+))?\)/g)) {
+      const target = m[1];
+      const want = m[2];
+      if (!existsSync(path.join(docsDir, target))) { broken.push(`${f} → ${target}（文件不存在）`); continue; }
+      if (!want) continue;
+      const list = anchors(target);
+      // 宽松匹配：去掉标点后再比一次（容忍编辑器差异）
+      const norm = (x) => x.replace(/[^\p{L}\p{N}]/gu, '');
+      if (!list.includes(want) && !list.some((h) => norm(h) === norm(want))) {
+        broken.push(`${f} → ${target}#${want}`);
+      }
+    }
+  }
+  record('SC63', '文档内部链接可点开（文件与锚点都存在）',
+    '遍历 docs/*.md 的所有 [..](x.md#anchor) 链接，校验目标文件与 GitHub 风格锚点',
+    `检查文档=${files.length} 份 死链=${broken.length} 处${broken.length ? '：' + broken.slice(0, 3).join('；') : ''}`,
+    broken.length === 0);
+}
+
   sc62();
+  sc63();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

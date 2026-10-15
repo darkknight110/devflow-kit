@@ -4,7 +4,8 @@
 > 与项目无关、**零依赖**（只用 Node 内置模块）、**数据与界面解耦**。
 > 强制力来自**产物契约 + 状态机 + 可执行门禁**，不来自文档。
 
-> **第一次用？直接看 [`docs/00-quickstart.md`](docs/00-quickstart.md)** —— 从装到发版的操作指南，全部命令实测可用。
+> **第一次用？直接看 [`docs/00-quickstart.md`](docs/00-quickstart.md)** —— 三条命令装好、从提需求到发版的操作指南。
+> 需要契约判定、看板插件、多仓工作区等增强时，看 [`docs/08-advanced.md`](docs/08-advanced.md)。
 
 ## 先拿到它（三选一）
 
@@ -79,7 +80,8 @@ devflow-kit/
 │   ├── 04-standards.md         ★ 基础标准与自定义规则（要求是什么、怎么改）
 │   ├── 05-storage.md           ★ 产物存放规则（放哪、是否入库、活多久）
 │   ├── 06-pilot-report.md      ★ 真实试点报告（含效率与质量实测）
-│   └── 07-ci.md                ★ 接入 CI：让门禁成为结构强制
+│   ├── 07-ci.md                ★ 接入 CI：让门禁成为结构强制
+│   └── 08-advanced.md          ★ 进阶用法（契约判定 / 看板与插件 / 多仓 / 事件流 / 命令表）
 ├── templates/                  产物模板（单一事实源，CLI 从这里渲染）
 │   ├── SPEC.md CONTRACT.md TASKS.md
 │   ├── coding_report.md verification.md APPROVALS.md release-report.md

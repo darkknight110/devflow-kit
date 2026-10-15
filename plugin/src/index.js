@@ -15,6 +15,10 @@
  *   · 起不来**不抛异常**（面板会显示原因），插件加载失败会连累整个 web boot；
  *   · 不申请任何额外权限，不注册模型工具。
  */
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 /** 探测看板服务是否已在监听 */
 async function boardAlive(url) {
@@ -48,7 +52,17 @@ function devflowBoardHost(ctx) {
    * 传进去会被 CLI 直接拒绝（实测）。所以只在候选**真的是**项目/工作区时才传，
    * 否则省略 `--root`，让看板自己从 cwd 向上找。
    */
-  const candidates = [process.env.DEVFLOW_ROOT, process.env.DSH_WORKSPACE, process.cwd()].filter(Boolean);
+  // 候选顺序很关键：宿主进程的 cwd 常在 `~/.dsh`（宿主目录），而宿主目录**不是**项目根
+  // （我们已刻意拒绝它）⇒ 只靠 cwd 会起不来。kit 自己就在工作区里（<kit>/.. 往往是工作区根），
+  // 所以从**自身位置**推最可靠 —— 与 bin 绝对路径同一思路。
+  const kitDir = path.resolve(__dirname, '..', '..');
+  const candidates = [
+    process.env.DEVFLOW_ROOT,
+    process.env.DSH_WORKSPACE,
+    path.resolve(kitDir, '..'),          // <kit>/.. 常是工作区根
+    kitDir,
+    process.cwd(),
+  ].filter(Boolean);
   const hasMarker = (d) => {
     try {
       const fs = require('node:fs');

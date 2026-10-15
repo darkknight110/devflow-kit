@@ -60,9 +60,9 @@ function BoardFrame() {
           background: 'rgba(128,128,128,.14)', borderRadius: '6px',
           fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px',
         },
-      }, `${typeof __DEVFLOW_BIN__ !== 'undefined' ? __DEVFLOW_BIN__ : 'devflow'} board`),
+      }, 'devflow board'),
       h('div', { style: { opacity: 0.72, fontSize: '11.5px' } },
-        `启动后刷新本面板即可显示（地址：${BOARD_URL}）。`),
+        `若提示找不到命令，请用 kit 目录下的 bin/devflow。启动后刷新本面板即可显示（地址：${BOARD_URL}）。`),
     ) : null,
   );
 

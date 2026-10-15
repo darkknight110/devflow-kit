@@ -17,8 +17,22 @@
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { appendFileSync } from 'node:fs';
+import os from 'node:os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+
+/**
+ * 诊断日志。**必须落到文件**：宿主的 console 在 GUI 里看不到，
+ * 而"起不来但不知道为什么"正是这个插件反复失败的原因（面板只能说"没有在运行"）。
+ */
+function diag(line) {
+  try {
+    const f = path.join(os.homedir(), '.dsh', 'devflow-board.log');
+    appendFileSync(f, `${new Date().toISOString()}  ${line}\n`, 'utf8');
+  } catch { /* 日志失败不影响主流程 */ }
+}
 
 /** 探测看板服务是否已在监听 */
 async function boardAlive(url) {
@@ -76,14 +90,18 @@ function devflowBoardHost(ctx) {
     let cancelled = false;
     (async () => {
       // ① 已在跑：什么都不做（避免起第二个、避免端口冲突）
-      if (await boardAlive(URL_)) return;
+      const alive = await boardAlive(URL_);
+      diag(`激活：端口=${PORT} 已在跑=${alive} cwd=${process.cwd()} 候选=${root || '（无有效候选）'}`);
+      if (alive) return;
       if (cancelled) return;
 
       // ② 起服务：常驻、无截止时间
       try {
         if (ctx.shell?.resolve && ctx.shell?.execute) {
-          // 必须用**绝对路径**：`devflow` 不在 GUI 宿主进程的 PATH 上（实测）
-          const bin = typeof __DEVFLOW_BIN__ !== 'undefined' ? __DEVFLOW_BIN__ : 'devflow';
+          // 必须用**绝对路径**：`devflow` 不在 GUI 宿主进程的 PATH 上（实测）。
+          // ⚠️ 但**绝不能在构建期烘焙**机器路径 —— 那会把作者的本机路径写进产物并入库
+          // （已造成一次公开仓库泄露）。改为**运行时**从自身位置解析。
+          const bin = path.resolve(__dirname, '..', '..', 'bin', 'devflow');
           const spec = ctx.shell.resolve({
             // 候选根无效时省略 --root，交给看板的向上查找
             command: `"${bin}" board --port ${PORT}` + (root ? ` --root "${root}"` : ''),
@@ -91,9 +109,12 @@ function devflowBoardHost(ctx) {
           });
           await ctx.shell.execute(spec);
         } else {
-          ctx.logger?.info?.('[devflow] 未发现 ctx.shell —— 请手动运行 devflow board');
+          diag('未发现 ctx.shell —— 无法自动启动（请在项目里手动运行 bin/devflow board）');
+        ctx.logger?.info?.('[devflow] 未发现 ctx.shell —— 请手动运行 devflow board');
         }
+        diag(`已下发启动命令：${spec.command}`);
       } catch (e) {
+        diag(`启动失败：${e && e.message ? e.message : e}`);
         // 起不来不抛：面板会显示"服务没有在运行"，那比让整个 boot 失败更有用
         ctx.logger?.warn?.(`[devflow] 看板服务启动失败：${e && e.message ? e.message : e}`);
       }

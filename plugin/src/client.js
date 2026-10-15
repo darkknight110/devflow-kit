@@ -53,14 +53,14 @@ function BoardFrame() {
     h('div', { style: { fontWeight: 600, marginBottom: '6px' } },
       state === 'loading' ? '正在检查看板服务…' : '看板服务没有在运行'),
     state === 'unreachable' ? h('div', null,
-      h('div', { style: { opacity: 0.8 } }, '在项目目录里执行一次：'),
+      h('div', { style: { opacity: 0.8 } }, '自动启动没有成功。请在项目目录里手动执行：'),
       h('code', {
         style: {
           display: 'block', margin: '6px 0', padding: '7px 10px',
           background: 'rgba(128,128,128,.14)', borderRadius: '6px',
           fontFamily: 'ui-monospace, Menlo, monospace', fontSize: '11.5px',
         },
-      }, 'devflow board'),
+      }, `${typeof __DEVFLOW_BIN__ !== 'undefined' ? __DEVFLOW_BIN__ : 'devflow'} board`),
       h('div', { style: { opacity: 0.72, fontSize: '11.5px' } },
         `启动后刷新本面板即可显示（地址：${BOARD_URL}）。`),
     ) : null,

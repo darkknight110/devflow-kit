@@ -66,6 +66,13 @@ if (!esbuildBuild) {
 }
 
 const PLUGIN_ID = JSON.parse(readFileSync(path.join(pluginRoot, 'package.json'), 'utf8')).name;
+
+/**
+ * kit 的 bin 绝对路径。**必须用绝对路径**：`devflow` 不在 PATH 上
+ * （实测：GUI 宿主进程的 PATH 里没有它），所以任何 `devflow board` 都会失败。
+ * 插件就在 `<kit>/plugin/` 下，从自身位置推最可靠（与 skill 同一思路）。
+ */
+const KIT_BIN = process.env.DEVFLOW_BIN || path.resolve(pluginRoot, '..', 'bin', 'devflow');
 const outFile = path.join(outDir, 'client.js');
 
 /**
@@ -87,7 +94,10 @@ await esbuildBuild({
   // React 由宿主 require 注入，不能内联（否则出现两份 React）
   external: ['react', 'react-dom', 'react/jsx-runtime', '@deepseek-ai/*'],
   // 端口在构建期注入（与宿主半边读同一个环境变量，避免两处硬编码漂移）
-  define: { __DEVFLOW_PORT__: String(Number(process.env.DEVFLOW_BOARD_PORT || 8787)) },
+  define: {
+    __DEVFLOW_PORT__: String(Number(process.env.DEVFLOW_BOARD_PORT || 8787)),
+    __DEVFLOW_BIN__: JSON.stringify(KIT_BIN),
+  },
   logLevel: 'warning',
 });
 
@@ -104,6 +114,7 @@ await esbuildBuild({
   platform: 'node',
   target: 'node20',
   external: ['@deepseek-ai/*'],
+  define: { __DEVFLOW_BIN__: JSON.stringify(KIT_BIN) },
   logLevel: 'warning',
 });
 process.stdout.write(`✓ 已打包宿主半边：${path.relative(pluginRoot, hostOut)}\n`);

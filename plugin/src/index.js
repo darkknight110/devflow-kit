@@ -26,10 +26,37 @@ async function boardAlive(url) {
   }
 }
 
-export default function devflowBoardHost(ctx) {
+/**
+ * 导出为 **{ name, inject, apply } 对象**（与客户端半边同一约定，也对照 dsh-context 的宿主半边）。
+ * 为什么必须声明 inject：不声明 `shell`，`ctx.shell` 就是 undefined —— 服务永远起不来，
+ * 而且失败是静默的（实测踩到：面板一直说"没有在运行"，却不知道原因）。
+ */
+const hostPlugin = {
+  name: 'dsh-plugin-devflow',
+  inject: ['shell'],
+  apply: devflowBoardHost,
+};
+
+export default hostPlugin;
+
+function devflowBoardHost(ctx) {
   const PORT = Number(process.env.DEVFLOW_BOARD_PORT || 8787);
   const URL_ = `http://127.0.0.1:${PORT}`;
-  const root = process.env.DEVFLOW_ROOT || process.cwd();
+  /**
+   * 传给 `--root` 的候选。
+   * **坑**：插件自身的目录（`<kit>/plugin`）既没有 devflow.json 也没有工作区清单，
+   * 传进去会被 CLI 直接拒绝（实测）。所以只在候选**真的是**项目/工作区时才传，
+   * 否则省略 `--root`，让看板自己从 cwd 向上找。
+   */
+  const candidates = [process.env.DEVFLOW_ROOT, process.env.DSH_WORKSPACE, process.cwd()].filter(Boolean);
+  const hasMarker = (d) => {
+    try {
+      const fs = require('node:fs');
+      return ['devflow.json', 'devflow.workspace.json', '.devflow']
+        .some((m) => fs.existsSync(require('node:path').join(d, m)));
+    } catch { return false; }
+  };
+  const root = candidates.find(hasMarker) || null;
 
   ctx.effect(() => {
     let cancelled = false;
@@ -41,8 +68,11 @@ export default function devflowBoardHost(ctx) {
       // ② 起服务：常驻、无截止时间
       try {
         if (ctx.shell?.resolve && ctx.shell?.execute) {
+          // 必须用**绝对路径**：`devflow` 不在 GUI 宿主进程的 PATH 上（实测）
+          const bin = typeof __DEVFLOW_BIN__ !== 'undefined' ? __DEVFLOW_BIN__ : 'devflow';
           const spec = ctx.shell.resolve({
-            command: `devflow board --port ${PORT} --root ${root}`,
+            // 候选根无效时省略 --root，交给看板的向上查找
+            command: `"${bin}" board --port ${PORT}` + (root ? ` --root "${root}"` : ''),
             onExpiry: 'none',
           });
           await ctx.shell.execute(spec);

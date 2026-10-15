@@ -148,8 +148,14 @@ class SilentExit extends Error {
 function resolveProject(flags, opts = {}) {
   if (flags.root) {
     const root = path.resolve(String(flags.root));
-    if (!existsSync(path.join(root, 'devflow.json'))) die(`--root 指向的目录缺少 devflow.json：${root}`, 2);
-    return { root, loaded: loadProject(root), marker: '--root' };
+    // `--root` 也要接受**多仓工作区**：工作区根没有 devflow.json，只有 devflow.workspace.json。
+    // 只认 devflow.json 会让插件/CI 从工作区根启动时直接失败（实测踩到）。
+    const isProject = existsSync(path.join(root, 'devflow.json'));
+    const isWorkspace = existsSync(path.join(root, 'devflow.workspace.json'));
+    if (!isProject && !isWorkspace) {
+      die(`--root 指向的目录既没有 devflow.json 也没有 devflow.workspace.json：${root}`, 2);
+    }
+    return { root, loaded: isProject ? loadProject(root) : { config: {} }, marker: '--root' };
   }
   const found = resolveProjectRoot();
   if (!found) {

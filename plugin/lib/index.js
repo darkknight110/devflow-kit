@@ -1,3 +1,10 @@
+var __require = /* @__PURE__ */ ((x) => typeof require !== "undefined" ? require : typeof Proxy !== "undefined" ? new Proxy(x, {
+  get: (a, b) => (typeof require !== "undefined" ? require : a)[b]
+}) : x)(function(x) {
+  if (typeof require !== "undefined") return require.apply(this, arguments);
+  throw Error('Dynamic require of "' + x + '" is not supported');
+});
+
 // src/index.js
 async function boardAlive(url) {
   try {
@@ -7,10 +14,25 @@ async function boardAlive(url) {
     return false;
   }
 }
+var hostPlugin = {
+  name: "dsh-plugin-devflow",
+  inject: ["shell"],
+  apply: devflowBoardHost
+};
+var index_default = hostPlugin;
 function devflowBoardHost(ctx) {
   const PORT = Number(process.env.DEVFLOW_BOARD_PORT || 8787);
   const URL_ = `http://127.0.0.1:${PORT}`;
-  const root = process.env.DEVFLOW_ROOT || process.cwd();
+  const candidates = [process.env.DEVFLOW_ROOT, process.env.DSH_WORKSPACE, process.cwd()].filter(Boolean);
+  const hasMarker = (d) => {
+    try {
+      const fs = __require("node:fs");
+      return ["devflow.json", "devflow.workspace.json", ".devflow"].some((m) => fs.existsSync(__require("node:path").join(d, m)));
+    } catch {
+      return false;
+    }
+  };
+  const root = candidates.find(hasMarker) || null;
   ctx.effect(() => {
     let cancelled = false;
     (async () => {
@@ -18,8 +40,10 @@ function devflowBoardHost(ctx) {
       if (cancelled) return;
       try {
         if (ctx.shell?.resolve && ctx.shell?.execute) {
+          const bin = true ? "/Users/darkrobot/projects/Private-Projects/devflow-kit/bin/devflow" : "devflow";
           const spec = ctx.shell.resolve({
-            command: `devflow board --port ${PORT} --root ${root}`,
+            // 候选根无效时省略 --root，交给看板的向上查找
+            command: `"${bin}" board --port ${PORT}` + (root ? ` --root "${root}"` : ""),
             onExpiry: "none"
           });
           await ctx.shell.execute(spec);
@@ -37,5 +61,5 @@ function devflowBoardHost(ctx) {
 }
 export {
   boardAlive,
-  devflowBoardHost as default
+  index_default as default
 };

@@ -2074,9 +2074,10 @@ function sc60() {
   const missingHooks = hooks.filter((k) => !src.includes(`id="${k}"`));
 
   // ③ 去重必须排除 generatedAt（否则空转也推）
-  const keyFn = /const stateKey = \(\) => \{[\s\S]{0,400}?generatedAt[\s\S]{0,200}?\};/.test(src);
+  // 去重键：函数名已泛化为 keyFor(root)（每请求根），但**必须仍排除 generatedAt**
+  const keyFn = /const keyFor = \(root\) => \{[\s\S]{0,300}?generatedAt[\s\S]{0,120}?\};/.test(src);
   // 无变化时：既不推快照，也**必须发心跳**（否则连接空闲会被判断开，实测面板一直"已断开"）
-  const skipsUnchanged = /if \(key === lastKey\)/.test(src);
+  const skipsUnchanged = /if \(key === last\)/.test(src);
   const sendsHeartbeat = /: ping/.test(src);
 
   record('SC60', '看板视觉齐备、JS 钩子完整、SSE 只在真实变化时推送',
@@ -2124,7 +2125,30 @@ function sc61() {
 }
 
   sc60();
+/**
+ * SC62：看板支持**每请求根**（一个服务服务任意工作区），且**不变成任意路径读取器**。
+ * 依据：用户诉求是"能切换工作区"；而 `?root=` 来自浏览器，必须校验后才接受。
+ */
+function sc62() {
+  const src = readFileSync(path.join(KIT_ROOT, 'scripts', 'lib', 'board.mjs'), 'utf8');
+  const hasResolve = /function resolveRoot\(/.test(src);
+  const validates = /MARKERS = \['\.devflow'/.test(src) && /isRoot\(abs\) \? abs : defaultRoot/.test(src);
+  const perRequest = /url\.searchParams\.get\('root'\)/.test(src);
+  const rootsApi = /'\/api\/roots'/.test(src);
+  // 服务端必须按订阅的根分别推送（否则切换后收到别人的数据）
+  const perClientRoot = /clients\.set\(res, root\)/.test(src);
+  // 面板要有切换控件，并回显实际服务的根
+  const ui = ['wsInput', 'wsApply', 'wsReset', 'wsList', 'startStream'].every((k) => src.includes(k));
+  const echoesRoot = /servedRoot/.test(src);
+
+  record('SC62', '看板每请求根：可切换工作区，且无效根回退默认（不做任意路径读取）',
+    'resolveRoot 校验标记后接受；state/stream 读 ?root=；有 /api/roots；按客户端各自的根推送；面板含切换控件并回显实际根',
+    `校验=${validates} 每请求=${perRequest} roots接口=${rootsApi} 按根推送=${perClientRoot} 控件=${ui} 回显=${echoesRoot}`,
+    hasResolve && validates && perRequest && rootsApi && perClientRoot && ui && echoesRoot);
+}
+
   sc61();
+  sc62();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

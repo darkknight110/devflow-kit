@@ -249,6 +249,13 @@ export function renderBoardHtml(projectName) {
    background:linear-gradient(135deg,var(--accent),var(--accent-2));
    box-shadow:0 0 12px rgba(91,157,255,.7);
  }
+ .ws{display:flex; align-items:center; gap:6px; font-size:12px}
+ .ws input{background:rgba(255,255,255,.05); border:1px solid var(--bd); border-radius:8px;
+   color:var(--txt); padding:4px 8px; font-size:11.5px; width:200px; font-family:ui-monospace,Menlo,monospace}
+ .ws input:focus{outline:none; border-color:var(--accent)}
+ .ws button{background:rgba(255,255,255,.06); border:1px solid var(--bd); border-radius:8px;
+   color:var(--txt2); padding:4px 9px; font-size:11.5px; cursor:pointer; transition:.15s}
+ .ws button:hover{background:rgba(255,255,255,.12); color:var(--txt)}
  .live{display:flex; align-items:center; gap:7px; font-size:12px; color:var(--mut);
    padding:5px 11px; border:1px solid var(--bd); border-radius:999px; background:rgba(255,255,255,.02)}
  .dot-live{width:7px; height:7px; border-radius:50%; background:var(--done);
@@ -344,6 +351,13 @@ export function renderBoardHtml(projectName) {
   <h1>devflow 看板</h1>
   <span class="muted" style="font-size:12px">${projectName}</span>
   <div class="live"><span id="live" class="dot-live"></span><span id="liveTxt">连接中…</span></div>
+  <div class="ws">
+    <span class="muted">工作区</span>
+    <input id="wsInput" list="wsList" placeholder="默认" spellcheck="false">
+    <datalist id="wsList"></datalist>
+    <button id="wsApply" title="切换到这个工作区">切换</button>
+    <button id="wsReset" title="回到服务默认根">默认</button>
+  </div>
   <div class="live" style="margin-left:auto"><span class="muted">更新于</span> <span id="at">—</span></div>
 </header>
 <div class="stats" id="stats"></div>
@@ -456,6 +470,8 @@ function render(s){
   STATE = s;
   drawStats(s); drawLanes(s);
   document.getElementById('at').textContent = String(s.generatedAt).replace('T',' ').slice(0,19);
+  // 回显**实际服务的根**：切错工作区时能立刻看出来，而不是默默显示别人的数据
+  if (s.servedRoot) document.getElementById('wsInput').value = s.servedRoot;
 }
 
 // 把数据流的真实状态报给宿主面板。**这是面板唯一能看见"流被浏览器拦掉"的通道**：
@@ -464,13 +480,43 @@ function report(status){
   if (window.parent === window) return;   // 直接打开时没有父页
   try { window.parent.postMessage({ source:'devflow-board', status:status }, '*'); } catch (e) { /* 忽略 */ }
 }
+// ── 工作区（每个请求带 root；选择记忆在 localStorage）──────────────
+let ROOT = localStorage.getItem('devflow.root') || '';
+const withRoot = (p) => p + (ROOT ? (p.includes('?') ? '&' : '?') + 'root=' + encodeURIComponent(ROOT) : '');
+
+async function loadRoots(){
+  try {
+    const d = await (await fetch('/api/roots')).json();
+    document.getElementById('wsList').innerHTML = (d.roots || []).map((x) =>
+      '<option value="'+esc(x.path || x)+'">'+esc(x.name || '')+'</option>').join('');
+  } catch {}
+}
+function applyRoot(next){
+  ROOT = next || '';
+  if (ROOT) localStorage.setItem('devflow.root', ROOT); else localStorage.removeItem('devflow.root');
+  document.getElementById('wsInput').value = ROOT;
+  startStream();                      // 换根 ⇒ 重建订阅
+}
+document.getElementById('wsApply').onclick = () => applyRoot(document.getElementById('wsInput').value.trim());
+document.getElementById('wsReset').onclick = () => applyRoot('');
+document.getElementById('wsInput').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') applyRoot(e.target.value.trim());
+});
+
 // 实时刷新：EventSource（SSE）。断线自动重连由浏览器负责。
-const es = new EventSource('/api/stream');
-es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch {} };
-es.onopen = () => { document.getElementById('live').className='dot-live';
-  document.getElementById('liveTxt').textContent='实时'; report('open'); };
-es.onerror = () => { document.getElementById('live').className='dot-live off';
-  document.getElementById('liveTxt').textContent='已断开，重连中…'; report('error'); };
+let es = null;
+function startStream(){
+  if (es) { try { es.close(); } catch {} }
+  es = new EventSource(withRoot('/api/stream'));
+  es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch {} };
+  es.onopen = () => { document.getElementById('live').className='dot-live';
+    document.getElementById('liveTxt').textContent='实时'; report('open'); };
+  es.onerror = () => { document.getElementById('live').className='dot-live off';
+    document.getElementById('liveTxt').textContent='已断开，重连中…'; report('error'); };
+}
+document.getElementById('wsInput').value = ROOT;
+loadRoots();
+startStream();
 </script>
 </body></html>`;
 }
@@ -478,34 +524,85 @@ es.onerror = () => { document.getElementById('live').className='dot-live off';
 // ── 服务 ───────────────────────────────────────────────────
 
 export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onReady }) {
-  const clients = new Set();
-  const snapshot = () => JSON.stringify(collectBoardState(projectRoot));
+  /** 默认根（启动时确定）；每个请求都可以用 ?root= 覆盖 */
+  const defaultRoot = projectRoot;
+
   /**
-   * 去重用的签名：**必须排除 generatedAt**。
+   * 校验一个候选根。
+   *
+   * 为什么要有这一步：`?root=` 来自浏览器，**不能盲信** —— 只接受"看起来是项目/工作区"的目录
+   * （含 .devflow/、devflow.json、devflow.workspace.json）。无效则回退默认根。
+   * 这样服务可以服务任意工作区（一个端口、不用重启），而不会变成任意路径读取器。
+   */
+  const MARKERS = ['.devflow', 'devflow.json', 'devflow.workspace.json'];
+  const isRoot = (d) => Boolean(d) && existsSync(d) && MARKERS.some((x) => existsSync(path.join(d, x)));
+  function resolveRoot(candidate) {
+    if (!candidate) return defaultRoot;
+    try {
+      const abs = path.resolve(String(candidate));
+      return isRoot(abs) ? abs : defaultRoot;
+    } catch { return defaultRoot; }
+  }
+
+  /** 已知工作区候选：默认根本身 + 它的兄弟目录 + 常见位置（供面板下拉用） */
+  function knownRoots() {
+    const out = new Map();                       // path -> 简短名（面板下拉更可读）
+    const add = (d, name) => { if (isRoot(d)) out.set(d, name || path.basename(d)); };
+    add(defaultRoot);
+
+    // ① 工作区的**成员仓**：这才是"在项目之间切换"的实际诉求
+    try {
+      const wsFile = path.join(defaultRoot, 'devflow.workspace.json');
+      if (existsSync(wsFile)) {
+        const ws = JSON.parse(readFileSync(wsFile, 'utf8'));
+        for (const m of ws.members || []) add(path.join(defaultRoot, m.path || m.name || m.repo), m.name);
+      }
+    } catch { /* 忽略 */ }
+
+    // ② 兄弟目录里像项目/工作区 的（多工作区并排时的另一处来源）
+    try {
+      const parent = path.dirname(defaultRoot);
+      for (const name of readdirSync(parent)) {
+        const d = path.join(parent, name);
+        try { if (statSync(d).isDirectory()) add(d); } catch { /* 跳过 */ }
+      }
+    } catch { /* 忽略 */ }
+    return [...out.entries()].map(([p, n]) => ({ path: p, name: n }));
+  }
+
+  const snapshotFor = (root) => JSON.stringify(collectBoardState(root));
+  /**
+   * 去重签名：**必须排除 generatedAt**。
    * 踩过的坑：generatedAt 每次重建都变 ⇒ 快照字符串每次不同 ⇒ 去重失效，
    * 于是服务每 2 秒推一帧、前端每 2 秒全量重绘一次（正在展开的卡片会被冲掉，实测发现）。
-   * 只在**真实状态变化**时推送。
    */
-  const stateKey = () => {
-    const st = collectBoardState(projectRoot);
-    const { generatedAt, ...rest } = st;
+  const keyFor = (root) => {
+    const { generatedAt, ...rest } = collectBoardState(root);
     return JSON.stringify(rest);
   };
 
-  // 变更广播：轮询文件（文件即真相，无需采集层）；内容变了才推
-  let lastKey = '';
+  /** 客户端 → 它订阅的根（每请求根：同一个服务可同时服务多个工作区） */
+  const clients = new Map();     // res -> root
+  const lastKeys = new Map();    // root -> 上次签名
+
   const timer = setInterval(() => {
-    let key; let payload;
-    try { key = stateKey(); } catch { return; }
-    if (key === lastKey) {
-      // 无变化：不推快照，但**必须发心跳** —— 否则连接空闲会被浏览器/代理判为断开。
-      // （修去重时曾把保活一起删掉，实测面板一直显示"已断开，重连中…"）
-      for (const res of clients) { try { res.write(': ping\n\n'); } catch { /* 忽略 */ } }
-      return;
+    // 按**当前有人订阅的根**逐个检查（没人看的根不计算，省开销）
+    for (const root of new Set(clients.values())) {
+      let key;
+      try { key = keyFor(root); } catch { continue; }
+      const last = lastKeys.get(root) || '';
+      const watchers = [...clients.entries()].filter(([, r]) => r === root).map(([res]) => res);
+      if (key === last) {
+        // 无变化：不推快照，但**必须发心跳** —— 否则连接空闲会被浏览器/代理判为断开。
+        // （修去重时曾把保活一起删掉，实测面板一直显示"已断开，重连中…"）
+        for (const res of watchers) { try { res.write(': ping\n\n'); } catch { /* 忽略 */ } }
+        continue;
+      }
+      lastKeys.set(root, key);
+      let payload;
+      try { payload = snapshotFor(root); } catch { continue; }
+      for (const res of watchers) { try { res.write(`data: ${payload}\n\n`); } catch { /* 忽略 */ } }
     }
-    lastKey = key;
-    try { payload = snapshot(); } catch { return; }
-    for (const res of clients) res.write(`data: ${payload}\n\n`);
   }, intervalMs);
   timer.unref?.();
 
@@ -513,27 +610,35 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
     const url = new URL(req.url, `http://127.0.0.1:${port}`);
     if (url.pathname === '/' || url.pathname === '/index.html') {
       res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
-      res.end(renderBoardHtml(path.basename(projectRoot)));
+      res.end(renderBoardHtml(path.basename(defaultRoot)));
+      return;
+    }
+    if (url.pathname === '/api/roots') {
+      // 面板的工作区下拉数据源
+      res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ default: defaultRoot, roots: knownRoots() }));
       return;
     }
     if (url.pathname === '/api/state') {
+      const root = resolveRoot(url.searchParams.get('root'));
       let body;
-      try { body = snapshot(); } catch (e) { body = JSON.stringify({ error: e.message }); }
+      try { body = JSON.stringify({ ...JSON.parse(snapshotFor(root)), servedRoot: root }); }
+      catch (e) { body = JSON.stringify({ error: e.message, servedRoot: root }); }
       res.writeHead(200, { 'content-type': 'application/json; charset=utf-8' });
       res.end(body);
       return;
     }
     if (url.pathname === '/api/stream') {
+      const root = resolveRoot(url.searchParams.get('root'));
       res.writeHead(200, {
         'content-type': 'text/event-stream; charset=utf-8',
         'cache-control': 'no-cache',
         connection: 'keep-alive',
       });
-      clients.add(res);
+      clients.set(res, root);
       try {
-        const first = snapshot();
-        lastKey = stateKey();
-        res.write(`data: ${first}\n\n`);
+        res.write(`data: ${snapshotFor(root)}\n\n`);
+        lastKeys.set(root, keyFor(root));
       } catch { /* 忽略 */ }
       req.on('close', () => clients.delete(res));
       return;
@@ -546,6 +651,6 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
     const addr = `http://127.0.0.1:${port}`;
     onReady?.(addr);
   });
-  const stop = () => { clearInterval(timer); for (const c of clients) { try { c.end(); } catch { /* 忽略 */ } } server.close(); };
-  return { server, stop, port };
+  const stop = () => { clearInterval(timer); for (const c of clients.keys()) { try { c.end(); } catch { /* 忽略 */ } } server.close(); };
+  return { server, stop, port, defaultRoot, resolveRoot, knownRoots };
 }

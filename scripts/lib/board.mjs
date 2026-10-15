@@ -86,6 +86,7 @@ function collectChange(projectRoot, itemId) {
     at: e.at, event: e.event || (e.from ? 'state' : 'other'),
     task: e.task || null, changes: e.changes || null,
     from: e.from || null, to: e.to || null, by: e.by || e.actor || null,
+    point: e.point || null,
     note: e.note || null, verdict: typeof e.verdict === 'string' ? e.verdict : null,
   }));
   // 人工确认点进度：这是"人最需要一眼看到"的信息（谁还没签、卡在哪个确认点）
@@ -465,18 +466,61 @@ function drawLanes(s){
       + '</div>';
   }).join('');
 }
+// ── 人话层：状态名中文化、事件翻译成人话、时间用相对量 ──────────────
+// 原则：这块**是给人看的**。不要把引擎内部事件名、JSON 片段、英文状态名直接铺出来。
+const STATE_ZH = { draft:'草稿', spec_ready:'判据就绪', contracted:'契约已冻结',
+  implementing:'开发中', tested:'已提测', verified:'已验证', released:'已发布' };
+const stateZh = (x) => STATE_ZH[x] || (x ? esc(x) : '（未知）');
+
+/** 相对时间：人对"3 分钟前"的理解远好于 ISO 串；精确时间放 title 里备查 */
+function ago(iso){
+  const t = new Date(iso).getTime();
+  if (isNaN(t)) return esc(String(iso || ''));
+  const sec = Math.max(0, (Date.now() - t) / 1000);
+  if (sec < 60) return '刚刚';
+  if (sec < 3600) return Math.floor(sec / 60) + ' 分钟前';
+  if (sec < 86400) return Math.floor(sec / 3600) + ' 小时前';
+  if (sec < 2592000) return Math.floor(sec / 86400) + ' 天前';
+  return fmtLocal(iso, false);
+}
+
+/** 门禁结论翻译成人话（verdict 是对象时**绝不能**直接打印） */
+function gateSentence(v){
+  if (!v || typeof v !== 'object') return '跑了门禁';
+  const total = Number(v.total || 0), fail = Number(v.fail || 0), unv = Number(v.unverified || 0);
+  if (!total) return '跑了门禁';
+  const bad = fail + unv;
+  if (!bad) return '跑了门禁：' + total + ' 项全部通过';
+  return '跑了门禁：' + total + ' 项，' + bad + ' 项没过' + (v.blocking ? '（已阻断）' : '');
+}
+
+/** 事件 → 一句人话。未知事件也要给出可读说法，不许把原始对象摊出来 */
+function humanEvent(e){
+  if (e.event === 'task.update') {
+    return '任务 ' + esc(e.task || '') + ' 更新：' + esc((e.changes || []).join('；') || '状态变化');
+  }
+  if (e.event === 'clarify') return '需求澄清：' + esc(e.qid || e.task || '') + ' 已记录';
+  if (e.event === 'gate-run') return gateSentence(e.verdict);
+  if (e.event === 'created') return '建了变更' + (e.tier ? '（' + esc(e.tier) + ' 档）' : '');
+  if (e.point) {
+    const ok = /通过/.test(String(e.verdict || ''));
+    return esc(e.by || '有人') + (ok ? ' 批准了「' : ' 驳回了「') + esc(e.point) + '」'
+      + (e.note ? '：' + esc(e.note) : '');
+  }
+  if (e.from || e.to) {
+    return '推进：' + stateZh(e.from) + ' → ' + stateZh(e.to)
+      + (e.by && e.by !== 'orchestrator' ? '（' + esc(e.by) + '）' : '');
+  }
+  return esc(e.event || '（无描述）');
+}
+
 function timeline(events){
-  if (!events.length) return '<p class="muted">暂无事件记录</p>';
-  return '<div class="tl">' + events.slice().reverse().map((e) => {
-    const at = fmtLocal(e.at);
-    let txt;
-    if (e.event === 'task.update') txt = '任务 '+esc(e.task)+'：'+esc((e.changes||[]).join('；'));
-    else if (e.event === 'clarify') txt = '澄清 '+esc(e.task||'')+esc(e.qid?(' '+e.qid):'');
-    else if (e.event === 'gate-run') txt = '门禁运行 '+(e.verdict?esc(e.verdict):'');
-    else if (e.from || e.to) txt = '状态 '+esc(e.from||'?')+' → '+esc(e.to||'?');
-    else txt = esc(e.event);
-    return '<div class="ev">'+txt+'<div class="at">'+at+(e.by?(' · '+esc(e.by)):'')+'</div></div>';
-  }).join('') + '</div>';
+  if (!events.length) return '<p class="muted">还没有记录</p>';
+  return '<div class="tl">' + events.slice().reverse().map((e) =>
+    '<div class="ev">' + humanEvent(e)
+      + '<div class="at" title="' + esc(fmtLocal(e.at)) + '">' + ago(e.at) + '</div></div>'
+  ).join('') + '</div>';
+}
 }
 function openTask(itemId, taskId){
   const c = STATE.changes.find((x) => x.itemId === itemId); if (!c) return;

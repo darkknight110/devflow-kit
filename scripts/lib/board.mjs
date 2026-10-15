@@ -373,6 +373,20 @@ export function renderBoardHtml(projectName) {
 </aside>
 <footer>v1 只读看板 · 数据直接读自 <code>.devflow/</code>（文件即真相）· 要改状态请在 CLI 或聊天里操作</footer>
 <script>
+/**
+ * 时间格式化：**必须用浏览器本地时区**。
+ * 踩过的坑：直接把 ISO（UTC）截断当本地时间显示 ⇒ 比本地时间少 8 小时（实测 CST+0800）。
+ * 服务端只发 ISO，显示交给浏览器 —— 它才知道用户的时区。
+ */
+const fmtLocal = (v, withSec = true) => {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (isNaN(d.getTime())) return String(v);
+  const p = (n) => String(n).padStart(2, '0');
+  const base = d.getFullYear() + '-' + p(d.getMonth() + 1) + '-' + p(d.getDate())
+    + ' ' + p(d.getHours()) + ':' + p(d.getMinutes());
+  return withSec ? base + ':' + p(d.getSeconds()) : base;
+};
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g, (c) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
 const LAYER_COLOR = { 前端:'#2563eb', 后端:'#7c3aed', 数据库:'#0891b2', 契约:'#c2410c', 文档:'#4b5563' };
 const KIND = { todo:['待开始','var(--todo)'], doing:['进行中','var(--doing)'], done:['已完成','var(--done)'], blocked:['阻塞','var(--blocked)'] };
@@ -421,7 +435,7 @@ function drawLanes(s){
 function timeline(events){
   if (!events.length) return '<p class="muted">暂无事件记录</p>';
   return '<div class="tl">' + events.slice().reverse().map((e) => {
-    const at = String(e.at||'').replace('T',' ').slice(0,19);
+    const at = fmtLocal(e.at);
     let txt;
     if (e.event === 'task.update') txt = '任务 '+esc(e.task)+'：'+esc((e.changes||[]).join('；'));
     else if (e.event === 'clarify') txt = '澄清 '+esc(e.task||'')+esc(e.qid?(' '+e.qid):'');
@@ -455,8 +469,8 @@ function openChange(itemId){
     '<h2>'+esc(c.itemId)+'</h2><div class="muted">'+esc(STATE_NAME[c.state]||c.state)+' · 档位 '+esc(c.tier)+'</div>'
     + '<dl class="kv"><dt>任务</dt><dd>'+c.counts.done+'/'+c.counts.total+' 已完成'
     + (c.counts.blocked?('，阻塞 '+c.counts.blocked):'')+'</dd>'
-    + '<dt>创建</dt><dd>'+esc(String(c.createdAt||'').slice(0,19).replace('T',' '))+'</dd>'
-    + '<dt>更新</dt><dd>'+esc(String(c.updatedAt||'').slice(0,19).replace('T',' '))+'</dd></dl>'
+    + '<dt>创建</dt><dd>'+esc(fmtLocal(c.createdAt))+'</dd>'
+    + '<dt>更新</dt><dd>'+esc(fmtLocal(c.updatedAt))+'</dd></dl>'
     + '<h2 style="margin-top:14px">人工确认点（'+(c.approvalsDone||0)+'/'+(c.approvalsTotal||0)+'）</h2>'
     + ((c.approvals||[]).length ? '<dl class="kv">'+(c.approvals||[]).map((a) =>
         '<dt>'+esc(a.name)+'</dt><dd>'+(a.done
@@ -469,7 +483,7 @@ function openChange(itemId){
 function render(s){
   STATE = s;
   drawStats(s); drawLanes(s);
-  document.getElementById('at').textContent = String(s.generatedAt).replace('T',' ').slice(0,19);
+  document.getElementById('at').textContent = fmtLocal(s.generatedAt);
   // 回显**实际服务的根**：切错工作区时能立刻看出来，而不是默默显示别人的数据
   if (s.servedRoot) document.getElementById('wsInput').value = s.servedRoot;
 }

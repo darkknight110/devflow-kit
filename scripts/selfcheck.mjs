@@ -2200,7 +2200,39 @@ function sc63() {
 }
 
   sc62();
+/**
+ * SC64：时间**显示必须是本地时区**。
+ *
+ * 踩过的坑：把 ISO（UTC）字符串直接截断当本地时间显示 ——
+ * 本机 CST+0800 实测差了整整 8 小时。存储用 ISO 是对的（可移植、可排序），
+ * **但显示必须转换**。
+ */
+function sc64() {
+  const files = ['scripts/cli.mjs', 'scripts/lib/board.mjs'];
+  const bad = [];
+  for (const f of files) {
+    const text = readFileSync(path.join(KIT_ROOT, f), 'utf8');
+    // 反模式：直接截断 ISO 当显示（'T' 换成空格再 slice 19）
+    for (const m of text.matchAll(/replace\(\s*['"]T['"]\s*,\s*['"] ['"]\s*\)\s*\.slice\(\s*0,\s*19\s*\)/g)) {
+      bad.push(`${path.basename(f)}:${text.slice(0, m.index).split('\n').length}`);
+    }
+  }
+  // 两个格式化器必须存在（各自负责自己的显示层）
+  const cli = readFileSync(path.join(KIT_ROOT, 'scripts', 'cli.mjs'), 'utf8');
+  const board = readFileSync(path.join(KIT_ROOT, 'scripts', 'lib', 'board.mjs'), 'utf8');
+  const hasFmt = /function localTime\(/.test(cli) && /const fmtLocal = \(/.test(board);
+  // 且必须真的被用上（而不是定义了没人用）
+  const usedInCli = /localTime\(e\.at\)/.test(cli);
+  const usedInBoard = /fmtLocal\(e\.at\)/.test(board) && /fmtLocal\(s\.generatedAt\)/.test(board);
+
+  record('SC64', '时间显示用本地时区（不得直接截断 ISO）',
+    '源码里不得出现 ISO 截断式显示；cli 与 board 各自有本地时间格式化器且被实际调用',
+    `裸截断=${bad.join(',') || '无'} 格式化器=${hasFmt} cli已用=${usedInCli} board已用=${usedInBoard}`,
+    bad.length === 0 && hasFmt && usedInCli && usedInBoard);
+}
+
   sc63();
+  sc64();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

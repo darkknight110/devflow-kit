@@ -145,6 +145,20 @@ class SilentExit extends Error {
   }
 }
 
+/**
+ * 时间显示：**一律转成本地时区**。
+ * 踩过的坑：直接截断 ISO（UTC）当本地时间 ⇒ 与用户看到的差 8 小时（CST+0800 实测）。
+ * 存储仍用 ISO（可移植、可排序），只在**显示**时转换。
+ */
+function localTime(v, withSec = true) {
+  if (!v) return '—';
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) return String(v);
+  const p = (n) => String(n).padStart(2, '0');
+  const base = `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}`;
+  return withSec ? `${base}:${p(d.getSeconds())}` : base;
+}
+
 function resolveProject(flags, opts = {}) {
   if (flags.root) {
     const root = path.resolve(String(flags.root));
@@ -1801,7 +1815,7 @@ function cmdHistory(flags, positional) {
   const list = only ? events.filter((e) => e.task === only) : events;
   if (flags.json) { out(flags, { itemId, events: list }, { itemId, events: list }); return; }
   const fmt = (e) => {
-    const t = String(e.at || '').replace('T', ' ').slice(0, 19);
+    const t = localTime(e.at);
     if (e.event === 'task.update') return `${t}  任务 ${e.task}  ${(e.changes || []).join('；')}  (${e.by || '-'})`;
     if (e.event === 'clarify') return `${t}  澄清 ${e.qid} → ${e.state}  (${e.by || '-'})`;
     if (e.event === 'gate-run') return `${t}  门禁运行  ${typeof e.verdict === 'string' ? e.verdict : JSON.stringify(e.verdict || {}).slice(0, 40)}`;
@@ -2082,7 +2096,7 @@ function cmdView(flags) {
  footer{margin-top:22px;color:var(--mut);font-size:12px}
 </style></head><body>
 <h1>devflow 视图 · ${esc(loaded.config?.devflow?.project || path.basename(root))}</h1>
-<div class="sub">${esc(root)}　·　生成于 ${esc(new Date().toISOString().slice(0, 19).replace('T', ' '))}</div>
+<div class="sub">${esc(root)}　·　生成于 ${esc(localTime(new Date().toISOString()))}</div>
 ${verdict ? `<section class="card"><h2>门禁可信度</h2><span class="badge ${verdict.trustworthy ? (verdict.counts?.weak ? 'warn' : 'ok') : 'bad'}">${esc(verdict.summary)}</span><div class="muted" style="margin-top:8px">阻断 ${verdict.counts?.block ?? 0} · 削弱 ${verdict.counts?.weak ?? 0} · 提示 ${verdict.counts?.info ?? 0}</div></section>` : ''}
 ${items.length ? `<section class="card"><details class="graph" open><summary>需求流转图（每个需求处于哪个节点）</summary>
     <pre class="mermaid">${esc(renderFlowGraph(items).replace(/^```mermaid\n/, '').replace(/\n```$/, ''))}</pre>

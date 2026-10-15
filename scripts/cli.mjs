@@ -2175,9 +2175,108 @@ try {
  * 分散成两个命令就会漏做其一 —— 而漏做技能意味着"聊天里用不了"，
  * 那正是本产品的主入口。
  */
+/**
+ * 安装/更新 **DSH 插件**（薄框看板面板）。
+ *
+ * 为什么由我们自己做，而不是让用户跑 `dsh plugin add`：
+ *   · 那条命令**需要 pnpm**（实测报 `pnpm not found on PATH`），而多数人没装；
+ *   · 而插件安装的实际内容只有 3 步，都在 profile 目录内，我们自己就能做。
+ *
+ * 三步（已对照真实 profile 结构核实）：
+ *   ① `node_modules/<pkg>` → `<kit>/plugin`（软链）
+ *   ② profile `package.json` 的 `dependencies` 加 `"link:<kit>/plugin"`
+ *   ③ profile `package.json` 的 `dsh.profile.bundles` 加包名
+ *
+ * 安全：写 profile 前**先备份**，写完**校验 JSON**，失败即回滚。
+ */
+function setupDshPlugin(flags) {
+  const dshHome = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
+  const profilesDir = path.join(dshHome, 'profiles');
+  const want = flags.profile ? String(flags.profile) : (process.env.DSH_PROFILE || 'desktop');
+  const profileDir = path.join(profilesDir, want);
+  const pkgName = 'dsh-plugin-devflow';
+  const pluginDir = path.join(KIT_ROOT, 'plugin');
+  const L = [];
+  const dry = Boolean(flags['dry-run']);
+
+  if (!existsSync(profilesDir)) {
+    L.push(`  — 跳过：未发现 DSH profiles 目录（${profilesDir}）`);
+    L.push('    若你不用 DSH：本步可忽略，用 `devflow board` 在浏览器看板即可');
+    return L;
+  }
+  if (!existsSync(path.join(profileDir, 'package.json'))) {
+    L.push(`  — 跳过：profile「${want}」不存在或没有 package.json`);
+    L.push(`    可用 --profile <名字> 指定；现有：${readdirSync(profilesDir).filter((n) => !n.startsWith('.')).join('、')}`);
+    return L;
+  }
+  if (!existsSync(path.join(pluginDir, 'lib', 'client.js'))) {
+    L.push('  ⚠ plugin/lib 里没有构建产物（client.js）—— 面板会加载失败');
+    L.push('    先在 plugin/ 里构建：node tools/build.mjs');
+  }
+
+  const pkgFile = path.join(profileDir, 'package.json');
+  const linkPath = path.join(profileDir, 'node_modules', pkgName);
+  const wantLink = `link:${pluginDir}`;
+
+  // ── 探测当前状态（幂等：已装则只报告） ──
+  let cfg = {};
+  try { cfg = JSON.parse(readFileSync(pkgFile, 'utf8')); } catch { /* 下面会报错 */ }
+  const deps = cfg.dependencies || {};
+  const bundles = (cfg.dsh && cfg.dsh.profile && cfg.dsh.profile.bundles) || [];
+  const linkOk = (() => { try { return readlinkSync(linkPath) === pluginDir; } catch { return false; } })();
+  const depOk = deps[pkgName] === wantLink;
+  const bundleOk = bundles.includes(pkgName);
+
+  if (linkOk && depOk && bundleOk) {
+    L.push(`  ✓ 插件已安装且是最新（profile：${want}）`);
+    return L;
+  }
+
+  if (dry) {
+    L.push(`  （预演，未改动）profile：${want}`);
+    L.push(`    ① 软链：${linkPath} → ${pluginDir}${linkOk ? '（已就绪）' : ''}`);
+    L.push(`    ② dependencies.${pkgName} = ${wantLink}${depOk ? '（已就绪）' : ''}`);
+    L.push(`    ③ dsh.profile.bundles 加入 ${pkgName}${bundleOk ? '（已就绪）' : ''}`);
+    return L;
+  }
+
+  // ── 备份 → 改 → 校验 → 失败回滚 ──
+  const backup = `${pkgFile}.devflow-bak`;
+  const original = readFileSync(pkgFile, 'utf8');
+  try {
+    if (!existsSync(linkPath)) {
+      mkdirSync(path.dirname(linkPath), { recursive: true });
+      symlinkSync(pluginDir, linkPath);
+    }
+    const next = JSON.parse(original);
+    next.dependencies = { ...(next.dependencies || {}), [pkgName]: wantLink };
+    next.dsh = next.dsh || {};
+    next.dsh.profile = next.dsh.profile || {};
+    const list = Array.isArray(next.dsh.profile.bundles) ? [...next.dsh.profile.bundles] : [];
+    if (!list.includes(pkgName)) list.push(pkgName);
+    next.dsh.profile.bundles = list;
+    const text = `${JSON.stringify(next, null, 2)}\n`;
+    JSON.parse(text);                                  // 校验：写之前必须是合法 JSON
+    writeFileSync(backup, original, 'utf8');           // 备份
+    writeFileSync(pkgFile, text, 'utf8');
+    JSON.parse(readFileSync(pkgFile, 'utf8'));         // 校验：写之后仍合法
+    L.push(`  ✓ 插件已安装（profile：${want}）`);
+    L.push(`      软链：${linkPath}`);
+    L.push(`      已写入 dependencies 与 dsh.profile.bundles`);
+    L.push(`      备份：${path.basename(backup)}（确认无误后可删）`);
+    L.push('      **需要重启 DSH 生效**；面板在右栏「devflow 看板」');
+  } catch (e) {
+    try { writeFileSync(pkgFile, original, 'utf8'); } catch { /* 尽力回滚 */ }
+    L.push(`  ✗ 安装失败并已回滚：${e && e.message ? e.message : e}`);
+    L.push(`    可手动检查 ${pkgFile}`);
+  }
+  return L;
+}
+
 function cmdSetup(flags) {
   const onlyGlobal = Boolean(flags.global);
   const onlyProject = Boolean(flags.project);
+  const wantDsh = Boolean(flags.dsh);
   if (onlyGlobal && onlyProject) die('--global 与 --project 不能同时使用', 2);
   process.stdout.write(`${paint('devflow setup', 'bold')}  ${onlyGlobal ? '（只装用户级）' : onlyProject ? '（只装本项目的钩子）' : '（用户级 + 本项目）'}\n`);
 
@@ -2193,6 +2292,12 @@ function cmdSetup(flags) {
     cmdSetupHooks(flags, { soft: true });
   }
   if (onlyProject) return;
+
+  // ③ DSH 插件（用户级，但**不是** skill —— 是界面面板；可选，失败不影响其它能力）
+  if (wantDsh) {
+    process.stdout.write(`\n${paint('devflow setup', 'bold')}  DSH 插件（薄框看板面板）\n`);
+    for (const line of setupDshPlugin(flags)) process.stdout.write(`${line}\n`);
+  }
 
   // ② 用户级配置：记录 kit 位置（跨工作区共享）。
   // 为什么必须有：聊天技能需要知道 CLI 在哪；把它写进一个**稳定位置**，

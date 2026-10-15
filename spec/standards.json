@@ -1,6 +1,6 @@
 {
   "$comment": "devflow 基础标准（产品自身的标准，单一来源）。\n\n定位：本文档是**产品对任何项目都成立的最低要求**，与任何具体业务仓无关。\n项目可以在 devflow.json 里声明自己的规则覆盖/追加，但**不得覆盖 exemptable=false 的条目**。\n\n每条字段说明：\n  id            稳定标识，供 status/report/文档引用\n  tier          适用档位（micro/light/standard/heavy）；'all' 表示全部\n  judge         判定方式：machine=引擎可自动判定；manual=需人确认并留痕\n  check         引擎据以判定的数据来源（machine 条目必填）\n  consequence   违反且未登记豁免时的后果：block=阻断 / weaken=削弱（⚠，不阻断） / info=提示\n  exemptable    是否允许项目登记豁免；false=不可豁免（产品底线）\n  reason        为什么设立这一条（写给使用者看）",
-  "version": "1.17.0",
+  "version": "1.18.0",
   "standards": [
     {
       "id": "STD-GATE-TEST-RUNS",
@@ -146,5 +146,5 @@
       "reason": "产品只对已接入范围给出结论。把『没检查』当『没问题』是采用阶段最常见的事故来源。"
     }
   ],
-  "$schemaVersion": "1.17.0"
+  "$schemaVersion": "1.18.0"
 }

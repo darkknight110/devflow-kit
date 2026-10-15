@@ -7,6 +7,22 @@
 
 ---
 
+## 最快路径（三条命令）
+
+```bash
+git clone https://github.com/darkknight110/devflow-kit.git ~/.devflow-kit   # ① 拿到
+~/.devflow-kit/bin/devflow setup --global --dsh                             # ② 聊天技能 + DSH 看板面板
+cd <你的项目> && ~/.devflow-kit/bin/devflow init --name <项目名> \
+  && ~/.devflow-kit/bin/devflow setup --project                             # ③ 接入项目
+```
+
+* `--dsh` 是**可选**的（只在用 DSH 时需要）：自动建软链、写 profile，并提示重启；
+* **不需要 pnpm、不需要 npm install** —— 全程零依赖；
+* 装完在聊天里说「我有个需求：…」开始；说「看看进度」会把视图直接给你。
+* 不想装插件也行：用 `devflow board`，浏览器与 DSH 窗口并排。
+
+---
+
 ## 第 0 步：拿到它（约 1 分钟）
 
 ```bash
@@ -403,7 +419,7 @@ devflow board          # 起一次，常驻
 
 | 项 | 说明 |
 |---|---|
-| 安装 | DSH 里 «添加插件» 填 `plugin/` 的绝对路径（需要 pnpm；GUI 内部自带） |
+| 安装 | **`devflow setup --dsh`**（一条命令、不需要 pnpm）；也可在 DSH 里 «添加插件» 填 `plugin/` 路径 |
 | 自动启动 | 插件激活时**自己把 `devflow board` 起起来**，你不用手动执行 |
 | 失败排查 | 看 `~/.dsh/devflow-board.log`（宿主日志在 GUI 里看不到，所以写文件） |
 | **工作区范围** | **一个服务对应一个工作区**（启动时确定）。**换项目要换工作区，见下节** |

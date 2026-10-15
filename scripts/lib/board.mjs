@@ -68,7 +68,20 @@ function parseTasks(itemDir) {
 function collectChange(projectRoot, itemId) {
   const dir = machineDir(projectRoot, itemId) || path.join(itemsDir(projectRoot), itemId);
   const status = readStatus(dir) || {};
-  const tasks = parseTasks(dir);
+  // 任务状态若仍是初始值「待开始」，按**变更所处状态**推断一个显示态。
+  //
+  // 为什么必须推断：任务状态只能靠 `devflow task <变更> T-x --status 进行中` **手工**更新，
+  // 而推进变更状态（implementing→released）**不会**动任务表 ⇒ 看板上永远是"全部待开始"、
+  // 「进行中/已完成」永远没有数据（实测反馈）。
+  // 注意：推断**只作用于展示**，不改写 TASKS.md；一旦有人显式标了状态，就以显式值为准。
+  const TASK_KIND_BY_STATE = (st) => (/^(tested|verified|released)$/.test(st) ? 'done'
+    : st === 'implementing' ? 'doing' : 'todo');
+  const tasks = parseTasks(dir).map((t) => (
+    // 空状态与「待开始」都算「尚未显式更新」——两种都按变更状态推断
+    t.kind === 'todo' && (!t.status || /待开始/.test(t.status))
+      ? { ...t, kind: TASK_KIND_BY_STATE(String(status.state || '')), derived: true }
+      : t
+  ));
   const history = (status.history || []).map((e) => ({
     at: e.at, event: e.event || (e.from ? 'state' : 'other'),
     task: e.task || null, changes: e.changes || null,

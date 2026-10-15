@@ -458,13 +458,19 @@ function render(s){
   document.getElementById('at').textContent = String(s.generatedAt).replace('T',' ').slice(0,19);
 }
 
+// 把数据流的真实状态报给宿主面板。**这是面板唯一能看见"流被浏览器拦掉"的通道**：
+// 面板与看板不同源，它自己探测不到内嵌页里发生的事（见 plugin/README.md「踩过的坑之四」）。
+function report(status){
+  if (window.parent === window) return;   // 直接打开时没有父页
+  try { window.parent.postMessage({ source:'devflow-board', status:status }, '*'); } catch (e) { /* 忽略 */ }
+}
 // 实时刷新：EventSource（SSE）。断线自动重连由浏览器负责。
 const es = new EventSource('/api/stream');
 es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch {} };
 es.onopen = () => { document.getElementById('live').className='dot-live';
-  document.getElementById('liveTxt').textContent='实时'; };
+  document.getElementById('liveTxt').textContent='实时'; report('open'); };
 es.onerror = () => { document.getElementById('live').className='dot-live off';
-  document.getElementById('liveTxt').textContent='已断开，重连中…'; };
+  document.getElementById('liveTxt').textContent='已断开，重连中…'; report('error'); };
 </script>
 </body></html>`;
 }

@@ -193,3 +193,78 @@ ctx.sidebarRightTabs.register({
 | 2 | **看板自己向上找根**：`discoverProjectRoot()` 从 cwd 逐级向上找 `.devflow/`、`devflow.json`、`devflow.workspace.json`。这样插件从任意目录启动都能找到用户的工作区 —— 不让插件去猜（它会猜成插件自己的目录，实测踩到） |
 
 **仍然保留的边界**：插件只在**服务未就绪**时启动，不会重复起第二个（避免端口冲突）。
+
+## 踩过的坑之四：sandbox 缺 `allow-same-origin` ⇒ 看板一片空白（已修）
+
+**症状**：右侧面板能打开，看板标题与顶栏都在，但指示灯是红的「已断开，重连中…」，
+**统计卡与任务卡整片没有**；而且**一句提示都没有**（面板以为服务好着呢）。
+
+**根因链**（四步，缺一不可）：
+
+| # | 环节 |
+|---|---|
+| 1 | `src/client.js` 的 sandbox 只有 `allow-scripts allow-popups allow-forms`；不给 `allow-same-origin` ⇒ 内嵌文档的源是 **opaque 的 `null`** |
+| 2 | 看板的数据**全部**走 SSE：`scripts/lib/board.mjs` 里 `new EventSource('/api/stream')`，HTML 壳里的 `#stats`/`#lanes` 是空的，**只有 `es.onmessage` 才会填** |
+| 3 | SSE 响应没写任何 CORS 头 ⇒ `null` 源的跨源请求被浏览器拒掉 |
+| 4 | `es.onerror` 触发 ⇒ 头部变「已断开，重连中…」，数据永远不来 |
+
+浏览器原话（挂到子 frame 会话才抓得到）：
+
+```
+Access to resource at 'http://127.0.0.1:8787/api/stream' from origin 'null'
+has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present
+on the requested resource.
+```
+
+**为什么一直没人发现**：
+
+* 宿主诊断日志（`~/.dsh/devflow-board.log`）只记宿主半边，**故障发生在浏览器里** ⇒ 日志看着一切正常，面板却是坏的；
+* 面板原来的探测用 `fetch(..., { mode: 'no-cors' })`：CORS 被拦也算"连得上"（拿到 opaque 响应）⇒ 永远报 `ok` ⇒ 连「看板服务没有在运行」那句提示都不会显示。
+
+**修法（两处，必须配套）**：
+
+| # | 修法 |
+|---|---|
+| 1 | iframe 的 sandbox 补上 `allow-same-origin`。**安全性不变**：看板页来自 `http://127.0.0.1:<port>`，与 DSH 界面依旧是**跨源**，拿不到 DSH 的 DOM/storage；父页不同源时内嵌页也无法自行摘掉 sandbox |
+| 2 | 看板页用 `postMessage({ source:'devflow-board', status })` 把 SSE 的真实状态报给面板（`onopen`→`open`，`onerror`→`error`）；面板据此新增 `blocked` 态，明说「数据流被浏览器拦掉了」而不是继续装死 |
+
+**复发时怎么快速定位**：把同一个看板地址分别放进 sandbox iframe 和普通 iframe —— 普通 iframe 正常、sandbox 里空白，就是这条。
+`scripts/selfcheck.mjs` 的 SC60/SC61 覆盖了界面钩子与插件产物卫生，改完记得重跑。
+
+## 宿主半边的两个致命 bug（已修，由诊断日志定位）
+
+装上后服务起不来，日志（`~/.dsh/devflow-board.log`）一行就定位了：
+
+```
+激活：已在跑=false cwd=…/profiles/desktop 候选=（无有效候选）
+启动失败：spec is not defined
+```
+
+| # | Bug | 机制 |
+|---|---|---|
+| A | `hasMarker` 在 **ESM 文件里用了 `require('node:fs')`** | ESM 没有 `require` ⇒ 抛错被 `catch` 吞掉 ⇒ **每个候选都判无效** ⇒ 不传 `--root` ⇒ 从宿主目录启动被拒 |
+| B | `diag(spec.command)` 写在了 **`spec` 的作用域之外** | 抛 `spec is not defined`，**打断整个启动流程** |
+
+**共同特征：静默失效。** A 被 catch 吞掉、B 只留下模糊的失败信息 ——
+所以面板只能说"没有在运行"，而**真正原因必须靠日志才能看到**。
+
+**教训（已固化为 SC61 自检）**：
+* ESM 源码**不得出现 `require(`**；
+* 构建产物**不得含 `/Users/` 或 `/home/` 路径**；
+* 宿主半边必须是 `{name, inject, apply}`；
+* 客户端产物必须是 `__ModuleLoader__` 格式。
+
+## 已知限制：一个服务 = 一个工作区
+
+看板服务的根在**启动时**确定（`--root` 或向上查找），`/api/state` **不接受 root 参数**。
+所以换项目时要另起一个：
+
+```bash
+devflow board --port 8788 --root <另一个项目或工作区根>
+```
+
+**改进方向（数据层已就绪）**：`collectBoardState(root)` 与 `collectChange(root, id)`
+本来就是**按 root 参数化**的，所以把根从"启动时确定"改成"**每请求确定**"
+（`/api/state?root=…`、`/api/stream?root=…`）是小改动，之后就能：
+* 一个服务服务任意工作区（不用多端口）；
+* 面板里加工作区切换下拉（需要一份"已知工作区列表"，可来自 DSH 的 workspace API）。

@@ -32,16 +32,33 @@ const TAB_ID = 'devflow/board';
  * （实测就踩到了这个 —— 打开右栏看到一片空白，其实是没启动服务）。
  */
 function BoardFrame() {
-  const [state, setState] = React.useState('loading');   // loading | ok | unreachable
+  // loading | ok | unreachable（服务没起来） | blocked（服务在跑，但数据流被浏览器拦掉）
+  const [state, setState] = React.useState('loading');
 
-  // 探测服务是否可达：iframe 的 onLoad 在成功与"连接失败页"都会触发，
-  // 所以另外用 fetch 判断（失败即视为没启动）。
+  // ① 服务可达性：服务没起来时 fetch 直接 reject；起来了就 resolve。
+  //    ⚠️ 这里**必须**用 mode:'no-cors'：本组件跑在 DSH 的源里，与看板不同源，
+  //    用 cors 模式会恒失败，把"服务好好的"误报成"没有在运行"。
+  //    no-cors 的代价：响应是 opaque 的，只能分辨"连得上 / 连不上"。
   React.useEffect(() => {
     let alive = true;
     fetch(BOARD_URL + '/api/state', { mode: 'no-cors' })
-      .then(() => { if (alive) setState('ok'); })
+      // 已经判为 blocked 就别被"连得上"覆盖掉（两者的探测速度不确定，会互相盖）
+      .then(() => { if (alive) setState((s) => (s === 'blocked' ? s : 'ok')); })
       .catch(() => { if (alive) setState('unreachable'); });
     return () => { alive = false; };
+  }, []);
+
+  // ② 数据流状态：**本组件看不见** iframe 里发生的事（跨源），只能由看板页自己 postMessage 报回来。
+  //    少了这条通道，"服务在跑但流被拦掉"就是一片**没有任何提示**的空白（实测踩到）。
+  React.useEffect(() => {
+    const onMsg = (e) => {
+      const d = e.data;
+      if (!d || d.source !== 'devflow-board') return;
+      if (d.status === 'open') setState('ok');
+      else if (d.status === 'error') setState((s) => (s === 'unreachable' ? s : 'blocked'));
+    };
+    window.addEventListener('message', onMsg);
+    return () => window.removeEventListener('message', onMsg);
   }, []);
 
   const hint = h('div', {
@@ -51,7 +68,9 @@ function BoardFrame() {
     },
   },
     h('div', { style: { fontWeight: 600, marginBottom: '6px' } },
-      state === 'loading' ? '正在检查看板服务…' : '看板服务没有在运行'),
+      state === 'loading' ? '正在检查看板服务…'
+        : state === 'blocked' ? '看板服务在跑，但实时数据流被浏览器拦掉了'
+          : '看板服务没有在运行'),
     state === 'unreachable' ? h('div', null,
       h('div', { style: { opacity: 0.8 } }, '自动启动没有成功。请在项目目录里手动执行：'),
       h('code', {
@@ -64,16 +83,26 @@ function BoardFrame() {
       h('div', { style: { opacity: 0.72, fontSize: '11.5px' } },
         `若提示找不到命令，请用 kit 目录下的 bin/devflow。启动后刷新本面板即可显示（地址：${BOARD_URL}）。`),
     ) : null,
+    state === 'blocked' ? h('div', null,
+      h('div', { style: { opacity: 0.8 } },
+        '看板页已经打开，但它取实时数据流（SSE）时被浏览器按 CORS 拒绝，所以统计和任务卡永远是空的。'),
+      h('div', { style: { opacity: 0.72, fontSize: '11.5px', marginTop: '6px' } },
+        '通常是内嵌 iframe 的 sandbox 少了 allow-same-origin —— 那样看板文档的源是 opaque 的 null，'
+        + '跨源请求拿不到 Access-Control-Allow-Origin。见 plugin/README.md「踩过的坑之四」。'),
+    ) : null,
   );
 
   return h('div', { style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column' } },
-    state === 'unreachable' ? hint : null,
+    state === 'unreachable' || state === 'blocked' ? hint : null,
     h('iframe', {
       src: BOARD_URL,
       title: 'devflow 看板',
       style: { flex: '1 1 auto', width: '100%', border: '0', background: '#0b1120' },
-      // 不给 allow-same-origin：内嵌页拿不到 DSH 的源，降低风险
-      sandbox: 'allow-scripts allow-popups allow-forms',
+      // allow-same-origin 是**必须**的：看板的数据全走 SSE（EventSource），不给它，
+      // 文档源就是 opaque 的 null ⇒ 跨源 ⇒ 被 CORS 拦掉 ⇒ 面板只剩空壳（实测踩到）。
+      // 安全性没有变差：看板页来自 http://127.0.0.1:<port>，与 DSH 界面仍是**跨源**，
+      // 拿不到 DSH 的 DOM/storage；父页不同源时，内嵌页也无法自行摘掉 sandbox。
+      sandbox: 'allow-scripts allow-popups allow-forms allow-same-origin',
     }),
     h('div', {
       style: { padding: '6px 10px', fontSize: '11px', opacity: 0.72, borderTop: '1px solid rgba(128,128,128,.25)' },

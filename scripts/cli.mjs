@@ -1712,8 +1712,16 @@ function cmdReview(flags, positional) {
     const approvals = parseApprovals(appRaw);
     const lines = [`${paint('devflow review', 'bold')}  ${itemId}`, '', '本变更的确认点：'];
     for (const pt of points) {
-      const rec = approvals.find((a) => String(a.point).includes(pt));
-      const mark = rec ? `${paint('✓', 'green')} 已记录（${rec.who} / ${rec.verdict}）` : '— 未记录';
+      // ⚠️ 必须用 isRealValue 过滤：模板占位行（（姓名）/（ISO 时间）/通过 / 驳回）**不算已签核**。
+      // 曾把占位显示成"✓ 已记录"，让人以为签好了 —— 与"失败必须可见"直接冲突（实测踩到）。
+      const rec = approvals.find((a) => String(a.point).includes(pt)
+        && isRealValue(a.who) && isRealValue(a.at) && isRealValue(a.verdict));
+      const pending = approvals.find((a) => String(a.point).includes(pt) && !rec);
+      const mark = rec
+        ? `${paint('✓', 'green')} 已记录（${rec.who} / ${rec.verdict}）`
+        : pending
+          ? `${paint('—', 'yellow')} 尚未签核（仍是模板占位）`
+          : '— 未记录';
       lines.push(`  ${pt}　${mark}`);
     }
     lines.push('');

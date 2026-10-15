@@ -1,6 +1,6 @@
 {
   "$comment": "门禁定义正典。引擎按此执行；每类门禁的证据形态、通过条件与是否阻断在此集中定义，不在代码里散落。",
-  "version": "1.23.0",
+  "version": "1.24.0",
   "levels": {
     "block": "阻断：不通过则不允许进入下一状态",
     "label": "标签：不阻断，但结果必须标记为未验证通过（⚠），不得显示为通过（✓）"
@@ -219,6 +219,13 @@
       ],
       "$comment": "启发式：存在漏报，不得当作硬保证。仅做提示与留痕。",
       "description": "对比档位与实际变更面；不一致时提示人工确认（明示会漏报）"
+    },
+    "G8": {
+      "name": "产物运行时健全性",
+      "requirement": "小程序的构建产物里不得残留 process.env —— 运行时没有 process 全局对象，启动即 ReferenceError、所有页面未注册",
+      "scope": "仅当项目看起来是小程序（存在 project.config.json 或 src/app.config.ts）且存在 dist/build/out 产物目录时判定；其余项目不适用",
+      "why": "项目自身的 build 门禁只看退出码，产物崩不崩它不管（实测：exit=0 而整包不可用）—— 这类谎报必须由引擎兜住",
+      "fix": "补齐 .env（build 所用 mode 的那份，如 .env.production）中缺失的 TARO_APP_* 变量，或为 process.env 加兜底 define"
     }
   },
   "evidence": {
@@ -286,5 +293,5 @@
       }
     ]
   },
-  "$schemaVersion": "1.23.0"
+  "$schemaVersion": "1.24.0"
 }

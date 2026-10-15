@@ -157,7 +157,7 @@ devflow adapters --apply go-test --demo --force-scripts --dry-run
 > 最终 item 名形如 **`<日期>-<变更名>`**（例：`2026-10-13-first-change`）。
 > `gate run` / `advance` / `fill` 都要用这个完整名字。
 
-期望看到：项目门禁逐条结果（含退出码与输出尾部）、Kit 门禁 G0..G7、以及结论 PASS / BLOCKED。
+期望看到：项目门禁逐条结果（含退出码与输出尾部）、Kit 门禁 G0..G8、以及结论 PASS / BLOCKED。
 
 ### 8. 看板
 

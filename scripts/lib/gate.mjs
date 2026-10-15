@@ -576,6 +576,50 @@ export function evaluateGates(ctx) {
     results.push(ok('G7', ['tierMatchesChangeSurface'], { evidence: { tier: tierInfo.tier, changeSurface: surface } }));
   }
 
+  // ── G8 产物运行时健全性：小程序的产物里不得残留 process.env ──
+  // 依据真实演练（chaincloud-business-mp）：`.env` 里缺 TARO_APP_* 变量 ⇒ Taro 不替换该成员表达式
+  //   ⇒ 产物残留 `process.env.X` ⇒ 小程序运行时**没有 process 全局对象** ⇒ app.js ReferenceError、
+  //     所有页面"has not been registered yet"（整包不可用）。
+  // 关键点：项目自己的 build 门禁**退出码仍是 0**（只看退出码、不看产物能不能跑）——
+  //   这种"门禁谎报通过"必须由引擎兜住（本仓标准 STD-GATE-HONEST-EXIT 正是禁止它）。
+  {
+    const miniMarkers = ['project.config.json', 'project.private.config.json', 'src/app.config.ts', 'app.config.ts'];
+    const isMiniProgram = miniMarkers.some((f) => existsSync(path.join(projectRoot, f)));
+    const outDirs = ['dist', 'build', 'out']
+      .map((d) => path.join(projectRoot, d))
+      .filter((d) => existsSync(d));
+    if (isMiniProgram && outDirs.length) {
+      const hits = [];
+      let scanned = 0;
+      for (const dir of outDirs) {
+        for (const rel of listFiles(dir)) {
+          if (!rel.endsWith('.js')) continue;
+          scanned += 1;
+          const text = readText(path.join(dir, rel)) || '';
+          if (text.includes('process.env')) hits.push(`${path.basename(dir)}/${rel}`);
+        }
+      }
+      if (hits.length) {
+        results.push({
+          gate: 'G8',
+          verdict: 'blocked',
+          checks: ['artifactHasNoProcessEnv'],
+          notes: [
+            `产物里残留 process.env（${hits.length}/${scanned} 个 JS 文件，如 ${hits.slice(0, 3).join('、')}）：`
+              + '小程序运行时没有 process 全局对象，启动即 ReferenceError、所有页面都会"未注册"',
+            '常见原因：.env 里**未定义**该 TARO_APP_* 变量 —— Taro 只替换已定义的成员表达式，未定义的会原样进产物',
+            '修法：在 .env（**build 所用 mode 的那份**，如 .env.production）补齐变量，或为 process.env 加兜底 define',
+          ],
+          evidence: { files: hits.slice(0, MAX_EVIDENCE_FILES), scanned },
+        });
+      } else {
+        results.push(ok('G8', ['artifactHasNoProcessEnv'], {
+          evidence: { scanned, dirs: outDirs.map((d) => path.basename(d)) },
+        }));
+      }
+    }
+  }
+
   return results;
 }
 

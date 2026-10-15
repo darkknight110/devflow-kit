@@ -17,7 +17,7 @@
  */
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { appendFileSync } from 'node:fs';
+import { appendFileSync, existsSync } from 'node:fs';
 import os from 'node:os';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -77,13 +77,10 @@ function devflowBoardHost(ctx) {
     kitDir,
     process.cwd(),
   ].filter(Boolean);
-  const hasMarker = (d) => {
-    try {
-      const fs = require('node:fs');
-      return ['devflow.json', 'devflow.workspace.json', '.devflow']
-        .some((m) => fs.existsSync(require('node:path').join(d, m)));
-    } catch { return false; }
-  };
+  // ⚠️ 不能用 `require` —— 本文件是 **ESM**，`require` 不存在，会抛错并被 catch 吞掉，
+  // 结果是**每个候选都判为无效**（实测日志：候选=（无有效候选））。
+  const hasMarker = (d) => ['devflow.json', 'devflow.workspace.json', '.devflow']
+    .some((m) => existsSync(path.join(d, m)));
   const root = candidates.find(hasMarker) || null;
 
   ctx.effect(() => {
@@ -108,11 +105,13 @@ function devflowBoardHost(ctx) {
             onExpiry: 'none',
           });
           await ctx.shell.execute(spec);
+          // ⚠️ 这行**必须留在 if 块内**：`spec` 是块级 const，放到块外会抛
+          // `spec is not defined`，把整个启动流程打断（实测日志：启动失败：spec is not defined）
+          diag(`已下发启动命令：${spec.command}`);
         } else {
           diag('未发现 ctx.shell —— 无法自动启动（请在项目里手动运行 bin/devflow board）');
-        ctx.logger?.info?.('[devflow] 未发现 ctx.shell —— 请手动运行 devflow board');
+          ctx.logger?.info?.('[devflow] 未发现 ctx.shell —— 请手动运行 devflow board');
         }
-        diag(`已下发启动命令：${spec.command}`);
       } catch (e) {
         diag(`启动失败：${e && e.message ? e.message : e}`);
         // 起不来不抛：面板会显示"服务没有在运行"，那比让整个 boot 失败更有用

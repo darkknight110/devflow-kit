@@ -2087,7 +2087,44 @@ function sc60() {
 }
 
   sc59();
+/**
+ * SC61：插件源码卫生 —— 守住两类**已经真实发生过**的错误。
+ *  ① ESM 文件里用 `require` ⇒ 抛错被 catch 吞掉，表现为"恒为 false"的静默失效
+ *     （实测：候选根全部判为无效，服务起不来，日志只能看到"无有效候选"）
+ *  ② 构建产物里烘焙了作者的本机路径 ⇒ 公开仓库泄露（实测发生过一次）
+ */
+function sc61() {
+  const srcDir = path.join(KIT_ROOT, 'plugin', 'src');
+  const files = existsSync(srcDir) ? readdirSync(srcDir).filter((f) => f.endsWith('.js')) : [];
+  const sources = files.map((f) => ({ f, text: readFileSync(path.join(srcDir, f), 'utf8') }));
+
+  // ① ESM 源码里不得出现 require(
+  const withRequire = sources.filter((x) => /\brequire\s*\(/.test(x.text)).map((x) => x.f);
+
+  // ② 宿主半边必须是 { name, inject, apply } 对象，且声明 inject
+  const host = sources.find((x) => x.f === 'index.js');
+  const hostOk = Boolean(host) && /name:\s*'/.test(host.text) && /inject:\s*\[/.test(host.text)
+    && /apply/.test(host.text);
+
+  // ③ 构建产物（若存在）不得含作者本机路径
+  const artifacts = ['lib/index.js', 'lib/client.js']
+    .map((f) => path.join(KIT_ROOT, 'plugin', f))
+    .filter((f) => existsSync(f));
+  const leaked = artifacts.filter((f) => /\/Users\/|\/home\/[a-z]/.test(readFileSync(f, 'utf8')));
+
+  // ④ 客户端产物必须是宿主的模块加载器格式（第一版用 ESM ⇒ boot 失败）
+  const clientFile = path.join(KIT_ROOT, 'plugin', 'lib', 'client.js');
+  const clientOk = !existsSync(clientFile)
+    || /window\.__ModuleLoader__\.load\(/.test(readFileSync(clientFile, 'utf8'));
+
+  record('SC61', '插件源码卫生：ESM 不用 require、宿主半边形态正确、产物不含本机路径',
+    'src 无 require(；宿主半边含 name/inject/apply；产物无 /Users 或 /home 路径；客户端产物为 __ModuleLoader__ 格式',
+    `含require=${withRequire.join(',') || '无'} 宿主形态=${hostOk} 产物泄露=${leaked.map((f) => path.basename(f)).join(',') || '无'} 客户端格式=${clientOk}`,
+    withRequire.length === 0 && hostOk && leaked.length === 0 && clientOk);
+}
+
   sc60();
+  sc61();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

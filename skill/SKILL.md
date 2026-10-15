@@ -34,7 +34,7 @@ for SKILL_DIR in "${SKILL_DIR:-}" "$HOME/.dsh/skills/devflow" "./.devflow-kit/sk
   [ -n "$K" ] && [ -x "$K/bin/devflow" ] && DF="$K/bin/devflow"
 done
 # ②b 用户级配置（部分安装方式会写）
-for cfg in "${DSH_HOME:-$HOME/.dsh}/devflow.json" "$HOME/.config/devflow/config.json"; do
+for cfg in "${DSH_HOME:-$HOME/.dsh}/devflow-kit.json" "$HOME/.config/devflow/config.json"; do
   [ -n "$DF" ] && break
   [ -f "$cfg" ] || continue
   K="$(python3 -c 'import json,sys;print(json.load(open(sys.argv[1])).get("kit",""))' "$cfg" 2>/dev/null)"

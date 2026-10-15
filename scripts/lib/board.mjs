@@ -19,6 +19,7 @@
 import http from 'node:http';
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import path from 'node:path';
+import os from 'node:os';
 import { itemsDir, localItemsDir, machineDir, readStatus, rawState } from './state.mjs';
 import { isRealValue, parseApprovals } from './checks.mjs';
 
@@ -139,8 +140,14 @@ export function workspaceMembers(root) {
  */
 export function discoverProjectRoot(startDir = process.cwd(), maxUp = 8) {
   const markers = ['.devflow', 'devflow.json', 'devflow.workspace.json'];
+  // 防御：DSH 宿主目录里可能放着与项目清单同名的配置文件，不能把它当项目根
+  const denied = [path.join(os.homedir(), '.dsh'), path.join(os.homedir(), '.config')];
   let dir = path.resolve(startDir);
   for (let i = 0; i < maxUp; i += 1) {
+    if (denied.some((d) => dir === d || dir.startsWith(`${d}${path.sep}`))) {
+      // 命中宿主目录：不再往上找（否则会一路找到 /）
+      if (dir === denied.find((d) => dir === d)) return null;
+    }
     if (markers.some((m) => existsSync(path.join(dir, m)))) return dir;
     const up = path.dirname(dir);
     if (up === dir) break;
@@ -484,7 +491,12 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
   const timer = setInterval(() => {
     let key; let payload;
     try { key = stateKey(); } catch { return; }
-    if (key === lastKey) return;          // 无变化：不推、不重绘
+    if (key === lastKey) {
+      // 无变化：不推快照，但**必须发心跳** —— 否则连接空闲会被浏览器/代理判为断开。
+      // （修去重时曾把保活一起删掉，实测面板一直显示"已断开，重连中…"）
+      for (const res of clients) { try { res.write(': ping\n\n'); } catch { /* 忽略 */ } }
+      return;
+    }
     lastKey = key;
     try { payload = snapshot(); } catch { return; }
     for (const res of clients) res.write(`data: ${payload}\n\n`);

@@ -10,6 +10,7 @@ import { readFileSync, existsSync, readdirSync, statSync } from 'node:fs';
 import { execFileSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
+import os from 'node:os';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 /** Kit 根目录（scripts/lib -> 上溯两级） */
@@ -41,9 +42,15 @@ export function resolveProjectRoot(startDir = process.cwd()) {
     if (existsSync(path.join(root, 'devflow.json'))) return { root, marker: 'DEVFLOW_ROOT' };
     return null;
   }
+  // 宿主目录不是项目根：`~/.dsh` 里放着 devflow 自己的配置文件，
+  // 其中若有与项目清单同名的 `devflow.json`，就会被误判成项目根
+  // （实测：看板把根解析成 ~/.dsh，显示 0 变更）。
+  const hostDirs = [path.join(os.homedir(), '.dsh'), path.join(os.homedir(), '.config')];
+  const inHostDir = (d) => hostDirs.some((x) => d === x || d.startsWith(`${x}${path.sep}`));
   let dir = path.resolve(startDir);
   let weak = null;
   for (let i = 0; i < 24; i += 1) {
+    if (inHostDir(dir)) return null;
     const hasConfig = existsSync(path.join(dir, 'devflow.json'));
     const hasItems = existsSync(path.join(dir, '.devflow'));
     if (hasConfig && hasItems) return { root: dir, marker: 'devflow.json + .devflow/' };

@@ -2075,13 +2075,15 @@ function sc60() {
 
   // ③ 去重必须排除 generatedAt（否则空转也推）
   const keyFn = /const stateKey = \(\) => \{[\s\S]{0,400}?generatedAt[\s\S]{0,200}?\};/.test(src);
-  const skipsUnchanged = /if \(key === lastKey\) return;/.test(src);
+  // 无变化时：既不推快照，也**必须发心跳**（否则连接空闲会被判断开，实测面板一直"已断开"）
+  const skipsUnchanged = /if \(key === lastKey\)/.test(src);
+  const sendsHeartbeat = /: ping/.test(src);
 
   record('SC60', '看板视觉齐备、JS 钩子完整、SSE 只在真实变化时推送',
     '含渐变/毛玻璃/阴影/等宽数字/响应式/降低动效/分节/空状态；8 个 JS 钩子齐全；去重排除 generatedAt 且无变化不推送',
     `视觉=${Object.entries(visuals).filter(([, v]) => !v).map(([k]) => k).join(',') || '齐备'} `
     + `缺钩子=${missingHooks.join(',') || '无'} 去重键=${keyFn} 跳过未变=${skipsUnchanged}`,
-    visualsOk && missingHooks.length === 0 && keyFn && skipsUnchanged);
+    visualsOk && missingHooks.length === 0 && keyFn && skipsUnchanged && sendsHeartbeat);
 }
 
   sc59();

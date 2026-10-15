@@ -40,7 +40,7 @@ import { createItem, evaluateItem, itemsDir, localItemsDir, machineDir, allItemI
 import { evaluateGates, summarize, resolveArtifactIn } from './lib/gate.mjs';
 import { runProjectGates } from './lib/evidence.mjs';
 import { diagnose, SEVERITIES, mergeStandardBlockers } from './lib/doctor.mjs';
-import { startBoard, collectBoardState } from './lib/board.mjs';
+import { startBoard, collectBoardState, discoverProjectRoot } from './lib/board.mjs';
 import { reviewPack, renderPack, currentFingerprint, staleInfo, fingerprint, specDigest } from './lib/review.mjs';
 import { normalizeContract, diffContracts, renderDiff } from './lib/contract.mjs';
 import { loadStandards, checkStandards } from './lib/standards.mjs';
@@ -2201,7 +2201,9 @@ function cmdSetup(flags) {
     // 写在 DSH 家目录（已确认可写）；~/.config 在部分环境受权限限制（实测 EPERM）
     const dshHomeForCfg = process.env.DSH_HOME || path.join(os.homedir(), '.dsh');
     const tries = [
-      { dir: dshHomeForCfg, file: path.join(dshHomeForCfg, 'devflow.json') },
+      // ⚠️ 文件名**不能**叫 devflow.json —— 那是项目清单的标记名，
+      // 放一份在 ~/.dsh 里会让"向上找项目根"把 ~/.dsh 当成项目（实测踩到：看板显示 .dsh / 0 变更）
+      { dir: dshHomeForCfg, file: path.join(dshHomeForCfg, 'devflow-kit.json') },
       { dir: path.join(os.homedir(), '.config', 'devflow'), file: path.join(os.homedir(), '.config', 'devflow', 'config.json') },
     ];
     let wrote = null;

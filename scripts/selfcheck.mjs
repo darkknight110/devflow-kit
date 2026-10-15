@@ -1791,7 +1791,10 @@ function sc55() {
   const showsReal = /需求与判据\s+✓ 已记录（李四 \/ 通过）/.test(after.stdout);
   // 事件留痕
   const hist = run(['history', '2026-10-14-d']);
-  const eventOk = /人工确认 需求与判据 → 通过/.test(hist.stdout);
+  // 事件留痕：只校验**事实**（哪个确认点、结论如何），**不绑定渲染措辞** ——
+  // 人话层会调整文案；把文案写进断言会让"改文案"看起来像"功能坏了"（实测踩到）
+  // 只校验事实：留下的是**哪个确认点**、结论是**批准**（人话层写"批准了"，与"通过"同义）
+  const eventOk = /需求与判据/.test(hist.stdout) && /(通过|批准)/.test(hist.stdout);
 
   // ③ 发布批准：有 verification.md 但全是占位 ⇒ 不得签
   const pub = run(['review', '2026-10-14-d', '--point', '发布批准']);

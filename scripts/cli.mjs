@@ -37,6 +37,7 @@ import {
   instructionChainKb,
 } from './lib/manifest.mjs';
 import { createItem, evaluateItem, itemsDir, localItemsDir, machineDir, allItemIds, listItems, recordRun, advance, archive, readStatus, rawState, appendEvent, readEvents } from './lib/state.mjs';
+import { humanEvent } from './lib/humanize.mjs';
 import { evaluateGates, summarize, resolveArtifactIn } from './lib/gate.mjs';
 import { runProjectGates } from './lib/evidence.mjs';
 import { diagnose, SEVERITIES, mergeStandardBlockers } from './lib/doctor.mjs';
@@ -1874,11 +1875,9 @@ function cmdHistory(flags, positional) {
     const t = localTime(e.at);
     if (e.event === 'task.update') return `${t}  任务 ${e.task}  ${(e.changes || []).join('；')}  (${e.by || '-'})`;
     if (e.event === 'clarify') return `${t}  澄清 ${e.qid} → ${e.state}  (${e.by || '-'})`;
-    if (e.event === 'gate-run') return `${t}  门禁运行  ${typeof e.verdict === 'string' ? e.verdict : JSON.stringify(e.verdict || {}).slice(0, 40)}`;
-    if (e.event === 'approval') return `${t}  人工确认 ${e.point} → ${e.verdict}  (${e.by || '-'})${e.note ? `　理由：${e.note}` : ''}`;
-    if (e.event === 'created') return `${t}  创建变更（档位 ${e.tier}，负责人 ${e.owner}）`;
-    if (e.from || e.to) return `${t}  状态 ${e.from || '?'} → ${e.to || '?'}${e.forced ? '（强制）' : ''}  (${e.by || e.actor || '-'})`;
-    return `${t}  ${e.event || '事件'}  ${JSON.stringify(e).slice(0, 60)}`;
+    // 统一走人话层（与看板同一份说法，见 lib/humanize.mjs）——
+    // 此前这里直接摊 JSON 片段、状态还是英文，用户看不懂
+    return `${t}  ${humanEvent(e)}`;
   };
   out(flags, [
     `${paint('devflow history', 'bold')}  ${itemId}`,

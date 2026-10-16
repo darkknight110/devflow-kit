@@ -588,14 +588,16 @@ exit 1
 }
 
 const TIER_TEMPLATES = {
-  micro: { needSpec: false, needContract: false, needTasks: false },
-  light: { needSpec: true, needContract: false, needTasks: false },
+  micro: { needGoal: false, needSpec: false, needContract: false, needTasks: false },
+  light: { needGoal: false, needSpec: true, needContract: false, needTasks: false },
   // 标准档：**契约可选** —— 与 spec/states.json 的 requiredArtifacts 一致（standard 不含 CONTRACT.md）。
   // 想要契约：`devflow fill <变更> --file CONTRACT.md`（或升到 heavy），随后内容照样会被检查。
   // 踩过的坑：这里曾写成 needContract: true（与本行注释相反）⇒ new 会创建一份没人写的
   // CONTRACT.md 模板 ⇒ G1b 因"占位内容"阻断标准档变更 —— 而正典根本不要求它。
-  standard: { needSpec: true, needContract: false, needTasks: true },
-  heavy: { needSpec: true, needContract: true, needTasks: true },
+  // needGoal 与 spec/artifacts.json 的 GOAL.md tier.required 必须一致（standard/heavy 才要）。
+  // 为什么轻档不要目标锚：轻档定位就是小改动，加一份文档会把它变成负担。
+  standard: { needGoal: true, needSpec: true, needContract: false, needTasks: true },
+  heavy: { needGoal: true, needSpec: true, needContract: true, needTasks: true },
 };
 
 function cmdNew(flags, positional) {
@@ -654,6 +656,7 @@ function cmdNew(flags, positional) {
   const files = [];
   const rel = (f) => path.join(created.itemDir, f);
   const plan = [];
+  if (tpl.needGoal) plan.push(['GOAL.md', 'goal']);
   if (tpl.needSpec) plan.push(['SPEC.md', 'spec']);
   if (tpl.needContract) plan.push(['CONTRACT.md', 'contract']);
   if (tpl.needTasks) plan.push(['TASKS.md', 'tasks']);
@@ -2986,6 +2989,7 @@ function cmdDoctor(flags) {
 
 /** 产物名 → 模板种类的映射（fill 用） */
 const ARTIFACT_TEMPLATE_KIND = {
+  'GOAL.md': 'goal',
   'SPEC.md': 'spec',
   'CONTRACT.md': 'contract',
   'TASKS.md': 'tasks',

@@ -85,7 +85,7 @@ devflow-kit/
 │   ├── 07-ci.md                ★ 接入 CI：让门禁成为结构强制
 │   └── 08-advanced.md          ★ 进阶用法（契约判定 / 看板与插件 / 多仓 / 事件流 / 命令表）
 ├── templates/                  产物模板（单一事实源，CLI 从这里渲染）
-│   ├── SPEC.md CONTRACT.md TASKS.md
+│   ├── GOAL.md SPEC.md CONTRACT.md TASKS.md
 │   ├── coding_report.md verification.md APPROVALS.md release-report.md
 │   └── roles/                  角色契约：orchestrator / implementer / verifier
 ├── spec/                       机器可读正典 —— 引擎唯一事实源

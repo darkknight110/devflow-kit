@@ -1,6 +1,6 @@
 {
   "$comment": "状态机正典。规则：必须全量枚举；引擎遇到未定义状态必须报错退出，禁止任何默认放行。 skippableStates 已由引擎实现：中间状态全部可跳过时允许一步跨越（见 state.mjs advance）。",
-  "version": "1.25.0",
+  "version": "1.26.0",
   "profiles": {
     "$comment": "规模档决定启用哪些阶段与确认点。同一套内核只换开关。",
     "solo": {
@@ -122,6 +122,7 @@
     "standard": {
       "name": "标",
       "requiredArtifacts": [
+        "GOAL.md",
         "SPEC.md",
         "TASKS.md",
         "coding_report.md",
@@ -137,6 +138,7 @@
     "heavy": {
       "name": "重",
       "requiredArtifacts": [
+        "GOAL.md",
         "SPEC.md",
         "CONTRACT.md",
         "TASKS.md",
@@ -159,10 +161,11 @@
     "spec_ready": {
       "name": "需求就绪",
       "required": [
+        "GOAL.md",
         "SPEC.md"
       ],
       "gate": "G1",
-      "description": "每条验收标准都有判据与判据类型"
+      "description": "每条验收标准都有判据与判据类型；标准档与重档还必须先有业务目标锚（GOAL.md）"
     },
     "contracted": {
       "name": "契约冻结",

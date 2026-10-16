@@ -63,6 +63,7 @@
 | 产物 | 类 | 位置 | 入库 |
 |---|---|---|---|
 | `CONTRACT.md` | ① | `items/<变更>/` | ✅ |
+| `GOAL.md` | ① | 同上 | ✅（standard 及以上；**只有人能改**，agent 只读） |
 | `SPEC.md` | ① | 同上 | ✅（standard 及以上） |
 | `TASKS.md` | ① | 同上 | ✅（standard 及以上） |
 | `APPROVALS.md` | ① | 同上 | ✅（standard 及以上） |

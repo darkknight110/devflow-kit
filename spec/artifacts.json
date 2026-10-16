@@ -1,6 +1,6 @@
 {
   "$comment": "产物 schema 正典。引擎按此校验必填字段与结构；字段缺失即阻断（G1）。 文档规范（产物头、章节次序、标点、表格约定）见本文件的 documentConventions。",
-  "version": "1.25.0",
+  "version": "1.26.0",
   "itemsDir": ".devflow/items",
   "projectConfig": "devflow.json",
   "workspaceConfig": "devflow.workspace.json",
@@ -10,6 +10,31 @@
     "dir": ".devflow/archive"
   },
   "artifacts": {
+    "GOAL.md": {
+      "type": "markdown",
+      "tier": {
+        "required": [
+          "standard",
+          "heavy"
+        ]
+      },
+      "requiredSections": [
+        "原始需求",
+        "成功定义",
+        "明确不做"
+      ],
+      "tables": {
+        "成功定义": {
+          "requiredColumns": [
+            "项",
+            "值"
+          ],
+          "minRows": 1
+        }
+      },
+      "description": "业务目标锚：原始需求原话 + 成功定义 + 明确不做。只有人能改，agent 只读；验收标准在 SPEC.md 里可演化，本文件不可被实现方改写。",
+      "$comment": "**两个字段各管一件事，别只改一处**（实测踩到：只在 tier.required 里加它，门禁完全不生效）：①「是否被要求」来自 spec/states.json 的状态 required（已挂到 spec_ready）；② 这里的 tier.required 只是**过滤器** —— 声明了档位的产物，只在该档位被要求。所以轻档/微档不要目标锚（轻档定位是小改动，试点实测 12 行改动已需维护 6 份文档；微档本就无产物）。"
+    },
     "SPEC.md": {
       "type": "markdown",
       "tier": {

@@ -8,6 +8,7 @@ import { existsSync, readFileSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 
 export const TEMPLATE_FILES = {
+  goal: 'GOAL.md',
   spec: 'SPEC.md',
   contract: 'CONTRACT.md',
   tasks: 'TASKS.md',

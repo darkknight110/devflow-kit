@@ -61,7 +61,7 @@ draft → spec_ready → contracted → implementing → tested → verified →
 | 状态 | 必备产物（累积） | 进入条件 |
 |---|---|---|
 | `draft` | STATE / STATUS.json | 变更登记且档位留痕 |
-| `spec_ready` | + SPEC.md | 每条 AC 有判据与判据类型 |
+| `spec_ready` | + GOAL.md（标准/重档）+ SPEC.md | 每条 AC 有判据与判据类型；标准档与重档还须有业务目标锚 |
 | `contracted` | + CONTRACT.md | owner 唯一、破坏性判定、兼容策略 |
 | `implementing` | + TASKS.md | 每任务有目标仓、写入范围、验收命令、对应 AC |
 | `tested` | + coding_report.md | 项目门禁通过（或合法豁免）+ 负向对照可信 |

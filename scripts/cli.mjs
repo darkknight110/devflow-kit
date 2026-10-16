@@ -49,7 +49,7 @@ import { renderTemplate, TEMPLATE_FILES } from './lib/template.mjs';
 import { loadAdapters, detectAdapters, applyAdapter, auditAdapterRegex } from './lib/adapter.mjs';
 import { dirSizeKb, exists, readText, parseAcceptanceCriteria, parseVerification, parseUnverifiedItems, parseApprovals, isRealValue } from './lib/checks.mjs';
 import { runSelfcheck } from './selfcheck.mjs';
-import { addStamp } from './lib/skill-sync.mjs';
+import { addStamp, syncInstalledSkill } from './lib/skill-sync.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const kitSpecCache = {};
@@ -349,6 +349,16 @@ const COMMAND_HELP = {
     examples: ['devflow selfcheck'],
   },
   version: { usage: 'devflow version', what: '打印版本、正典清单与可用命令。', notes: [], examples: [] },
+  skill: {
+    usage: 'devflow skill [sync] [--check] [--json]',
+    what: '把已安装的 DSH 聊天技能副本与 kit 里的源文件对齐（默认 sync）。',
+    notes: [
+      '技能装成真实文件（不是软链），所以源文件改了副本不会自动更新 —— 本命令用于手工收口。',
+      '正常无需手跑：任何一次 devflow 命令都会顺手收敛（--check 只报告、不写）。',
+      '副本不存在时不自动安装 —— 装不装由你决定，请用 devflow setup。',
+    ],
+    examples: ['devflow skill --check', 'devflow skill sync --json'],
+  },
 };
 
 function printCommandHelp(name) {
@@ -3361,7 +3371,7 @@ function cmdVersion(flags) {
     node: process.version,
     kitRoot: KIT_ROOT,
     spec: Object.keys(allSpec()),
-    commands: ['init', 'doctor', 'adapters', 'new', 'fill', 'status', 'gate run', 'advance', 'report', 'archive', 'workspace', 'selfcheck', 'version'],
+    commands: ['init', 'doctor', 'adapters', 'new', 'fill', 'status', 'gate run', 'advance', 'report', 'archive', 'workspace', 'selfcheck', 'skill', 'version'],
   };
   out(flags, [
     `devflow-kit ${v.kit}`,
@@ -3371,6 +3381,74 @@ function cmdVersion(flags) {
     `  适配器：${Object.keys(loadAdapters(KIT_ROOT)).join(' / ')}`,
     `  命令：${v.commands.join('、')}`,
   ].join('\n'), v);
+}
+
+function cmdSkill(flags, positional) {
+  const sub = positional[0] || 'sync';
+  if (sub !== 'sync') die(`未知子命令：skill ${sub}（目前只支持 skill sync）`, 2);
+  const r = syncInstalledSkill(path.join(KIT_ROOT, 'skill', 'SKILL.md'), { dryRun: !!flags.check });
+
+  if (flags.json) {
+    // 退出码是给 CI / 脚本用的契约：
+    //   0 = 已一致 / 未安装（无可同步之物，不算问题）
+    //   1 = `--check` 发现不一致（过期，可修）
+    //   2 = 真错误（源缺失、写入失败）
+    if (r.action === 'source-missing' || r.action === 'write-failed') process.exitCode = 2;
+    else if (flags.check && r.action === 'stale') process.exitCode = 1;
+    out(flags, '', { action: r.action, installedPath: r.installedPath, verdict: r.verdict, reason: r.reason, check: !!flags.check });
+    return;
+  }
+
+  const lines = [];
+  switch (r.action) {
+    case 'ok':
+      lines.push(`聊天技能已是最新：${r.installedPath}`);
+      break;
+    case 'stale':
+      lines.push(flags.check
+        ? `聊天技能**与 kit 不一致**（需要同步）：${r.installedPath}`
+        : `聊天技能已同步到最新：${r.installedPath}`);
+      lines.push(`  原因：${r.reason}`);
+      if (flags.check) {
+        lines.push('  同步：devflow skill sync');
+        process.exitCode = 1;   // --check 是给 CI 用的：不一致就该非零
+      }
+      break;
+    case 'missing':
+      lines.push(`未安装聊天技能（${r.installedPath} 不存在）`);
+      lines.push('  安装：devflow setup');
+      break;
+    case 'source-missing':
+      lines.push(`✗ ${r.reason}`);
+      process.exitCode = 2;
+      break;
+    default:
+      lines.push(`✗ 同步失败：${r.reason}`);
+      lines.push('  已安装副本保持原样；可手工执行：devflow setup');
+      process.exitCode = 2;
+  }
+  out(flags, lines.join('\n'), r);
+}
+
+/**
+ * 任何一次 devflow 命令都顺手把**已存在**的聊天技能副本收敛回与源一致。
+ *
+ * 为什么放在这里而不是让用户记得重跑 setup：技能装成真实文件（不是软链），
+ * 源改了副本不会自动更新 —— 而 agent 读的正是副本。真实踩到：源里的 npm 指令已删，
+ * 副本里还留着，于是 agent 一直建议用户去装同名的别人项目，且全程无报错。
+ *
+ * 约束：只收敛**已存在**的副本（不替用户安装）；失败静默（一个顺手动作不能搞崩用户要跑的命令）；
+ * 只在实际有改动时提示，且刻意不写成警告（这不是错误，是已自动完成的事）。
+ */
+function autoSyncSkill(command) {
+  const skip = new Set(['skill', 'version', 'selfcheck', 'setup', 'setup-hooks']);
+  if (skip.has(command)) return;
+  try {
+    const r = syncInstalledSkill(path.join(KIT_ROOT, 'skill', 'SKILL.md'));
+    if (r.action === 'stale') {
+      process.stdout.write(`  · 已自动同步聊天技能副本（源已更新）：${r.installedPath}\n`);
+    }
+  } catch { /* 读不到 home / 环境受限：静默跳过，不影响命令本身 */ }
 }
 
 function usage() {
@@ -3433,6 +3511,10 @@ if (flags.help && COMMAND_HELP[command]) {
   process.exit(0);
 }
 
+// 收敛放在**命令执行之前**：它只依赖 kit 与用户 home，与"这条命令能不能跑成"无关。
+// 放在之后会漏掉所有 die() 退出的命令（找不到项目根、参数错误…），那些恰恰是新手最常遇到的。
+autoSyncSkill(command);
+
 try {
   switch (command) {
     case 'init': cmdInit(flags); break;
@@ -3467,6 +3549,7 @@ try {
     case 'workspace': cmdWorkspace(flags, positional); break;
     case 'architecture': cmdArchitecture(flags); break;
     case 'selfcheck': cmdSelfcheck(flags); break;
+    case 'skill': cmdSkill(flags, positional); break;
     case 'version': cmdVersion(flags); break;
     default: die(`未知命令：${command}\n\n${usage()}`, 2);
   }

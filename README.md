@@ -96,7 +96,7 @@ devflow-kit/
 │   └── roles.json              角色权限矩阵与确认点
 ├── scripts/
 │   ├── cli.mjs                 命令行装配层
-│   ├── selfcheck.mjs           门禁体系自检（68 条用例）
+│   ├── selfcheck.mjs           门禁体系自检（69 条用例）
 │   └── lib/{manifest,checks,evidence,gate,state,doctor,template,adapter,skill-sync}.mjs
 └── examples/
     ├── single-repo-service/        可运行样例工程（Node 形态）
@@ -127,7 +127,7 @@ devflow-kit/
 
 ```bash
 bash examples/verify-all.sh           # ★ 一次跑完全部验收（自检 + 六套端到端），交付前跑这个
-node scripts/selfcheck.mjs            # 门禁体系自检：68/68
+node scripts/selfcheck.mjs            # 门禁体系自检：69/69
 bash examples/verify-example.sh       # 端到端（Node 形态，33 条断言）
 bash examples/verify-java-project.sh  # 端到端（Java/Maven 形态，25 条断言）
 bash examples/verify-stacks.sh        # 四栈交叉验收

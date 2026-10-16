@@ -26,7 +26,7 @@ import { checkStandards } from './lib/standards.mjs';
 import { extractEndpoints, normalizePath, pathMatches } from '../tools/contract-scan.mjs';
 import { auditTemplates, renderTemplate, TEMPLATE_FILES } from './lib/template.mjs';
 import { createItem } from './lib/state.mjs';
-import { addStamp, stampFor, installedBodyProblem, compareSkill, compareInstalledSkill, STAMP_MARKER } from './lib/skill-sync.mjs';
+import { addStamp, stampFor, installedBodyProblem, compareSkill, compareInstalledSkill, syncInstalledSkill, STAMP_MARKER } from './lib/skill-sync.mjs';
 
 const KIT = {
   states: loadKitSpec('states'),
@@ -1698,22 +1698,86 @@ function sc67() {
 }
 
 /**
- * SC68：README 里写的自检条数必须与实际一致。
+ * SC68：自动收敛技能的语义必须**不越界、不自作主张**。
  *
- * 依据（真实踩到）：README 长期写着"自检（32 条用例）"与"自检：32/32"，而实际早已是 66 条 ——
- * 数字漂了没人发现，读者看到的是一句假话。这类"文档里的具体数字"最容易腐烂，
- * 所以钉成机器校验：数字来源是**本文件实际登记的用例**，不是人手抄。
- *
- * 判据：README 里两处（目录树注释、运行段）的数字都必须等于实际条数；
- * 并带负向对照，证明"对不上"确实会被判失败。
+ * 依据：既然任何一条 devflow 命令都会顺手收敛已装技能副本，这个"顺手"就必须有严格边界，
+ * 否则它会变成"用户没让我写、我却写了他 home"的静默副作用。四条边界：
+ *   ① 副本不存在 ⇒ 只报 missing，**绝不替用户安装**（装不装是他的决定）；
+ *   ② 副本与源不一致 ⇒ 收敛回一致（含形态非法时的自愈）；
+ *   ③ 已一致 ⇒ 报 ok，**不写盘**（不制造无意义的 mtime 变动）；
+ *   ④ dryRun（`--check`）⇒ 只报告，**一个字节都不动**。
+ * 并带负向对照：陈旧副本若不收敛，比对必须仍判 diverged（证明②不是恒真）。
  */
 function sc68() {
-  // 条数 = 已登记的 + 本用例自己（本函数在 record 之前执行，故显式 +1）。
-  // 这样计数不依赖"sc68 必须被最后调用"这一隐含约定。
-  const actual = [...new Set(cases.map((c) => c.id))].filter((id) => /^SC\d+$/.test(id)).length + 1;
+  const src = path.join(KIT_ROOT, 'skill', 'SKILL.md');
+  const home = tmpProject('skillsync');
+  const installedPath = path.join(home, 'skills', 'devflow', 'SKILL.md');
+
+  // ① 副本不存在：只报告，不安装
+  const missing = syncInstalledSkill(src, { dshHome: home });
+  const notInstalled = missing.action === 'missing' && !existsSync(installedPath);
+
+  // ② 造一个陈旧副本：必须被收敛，且比对转为一致
+  mkdirSync(path.dirname(installedPath), { recursive: true });
+  writeFileSync(installedPath, addStamp('---\nname: devflow\n---\n陈旧正文\n'), 'utf8');
+  const stale = syncInstalledSkill(src, { dshHome: home });
+  const converged = stale.action === 'stale'
+    && compareInstalledSkill(src, { dshHome: home }).verdict === 'ok';
+
+  // ③ 已一致：再收敛报 ok（调用方据此决定"不提示、不写盘"）
+  const noopWhenSynced = syncInstalledSkill(src, { dshHome: home }).action === 'ok';
+
+  // ④ dryRun：把副本改陈旧后只报告，盘上内容不得变
+  writeFileSync(installedPath, addStamp('---\nname: devflow\n---\n又陈旧了\n'), 'utf8');
+  const before = readFileSync(installedPath, 'utf8');
+  const dry = syncInstalledSkill(src, { dshHome: home, dryRun: true });
+  const dryRunReadOnly = dry.action === 'stale' && readFileSync(installedPath, 'utf8') === before;
+
+  // 负向对照：没走收敛时，比对必须仍判 diverged
+  const stillStale = compareInstalledSkill(src, { dshHome: home }).verdict === 'diverged';
+
+  // 负向对照：形态非法（副本缺安装戳）也必须被判出来，且能被自愈
+  writeFileSync(installedPath, '---\nname: devflow\n---\n没有戳\n', 'utf8');
+  const malformedSeen = compareInstalledSkill(src, { dshHome: home }).verdict === 'malformed';
+  const healed = syncInstalledSkill(src, { dshHome: home }).action === 'stale'
+    && compareInstalledSkill(src, { dshHome: home }).verdict === 'ok';
+
+  // 设计选择的钉子：**戳的文案不参与比对**（否则带日期的戳会让副本每天重写一次）。
+  // 用两个文案不同的戳装同一个正文，比对必须都判 ok。
+  const stampAgnostic = ['<!-- 由 devflow setup 安装（2000-01-01）；旧文案 -->', '<!-- 由 devflow setup 安装（2099-12-31）；新文案 -->']
+    .every((s) => compareSkill({
+      sourceText: '---\nname: devflow\n---\n正文\n',
+      installedText: `---\nname: devflow\n---\n${s}\n正文\n`,
+      installedExists: true,
+    }).verdict === 'ok');
+
+  record('SC68', '技能自动收敛的边界：不替用户安装、能收敛、已一致不写、--check 不动盘',
+    '未安装只报告；陈旧能收敛；已一致不重写；dryRun 不写盘；不收敛时能判出分歧；缺戳能自愈；戳文案不影响比对',
+    `未安装不安装=${notInstalled} 陈旧已收敛=${converged} 已一致不重写=${noopWhenSynced}`
+    + ` dryRun只读=${dryRunReadOnly} 分歧可判出=${stillStale} 缺戳可判出=${malformedSeen} 缺戳可自愈=${healed} 戳文案无关=${stampAgnostic}`,
+    notInstalled && converged && noopWhenSynced && dryRunReadOnly && stillStale && malformedSeen && healed && stampAgnostic);
+  rmSync(home, { recursive: true, force: true });
+}
+
+/**
+ * SC69：文档里写的自检条数必须与实际一致（**必须是最后一个用例**）。
+ *
+ * 依据（真实踩到）：README 长期写着"自检（32 条用例）"与"自检：32/32"，而实际早已是 66 条 ——
+ * 数字漂了没人发现，读者看到的是一句假话。这类"文档里的具体数字"最容易腐烂，所以钉成机器校验。
+ *
+ * ⚠️ 为什么必须排在最后：它要统计的正是"本文件一共有多少条用例"。
+ * 夹在中间时，`cases` 里还没有后面的用例，任何"数出别人再加回自己"的公式都会差 1
+ *（实测踩到：文档写 69，而它在第 68 位只能看到 68 ⇒ 恒红，且看起来像文档写错）。
+ * 排最后 ⇒ 数完除自己以外的全部，再加回自己，结果与顺序无关。
+ */
+function sc69() {
+  const others = [...new Set(cases.map((c) => c.id))].filter((id) => /^SC\d+$/.test(id) && id !== 'SC69').length;
+  const actual = others + 1;
   const body = readFileSync(path.join(KIT_ROOT, 'README.md'), 'utf8');
+  const adv = readFileSync(path.join(KIT_ROOT, 'docs', '08-advanced.md'), 'utf8');
   const mTree = /自检（(\d+) 条用例）/.exec(body);
   const mRun = /自检：(\d+)\/(\d+)/.exec(body);
+  const mAdv = /全绿才算通过/.test(adv) ? /自检（(\d+) 项/.exec(adv) : null;
   const ok = (m) => !!m && Number(m[1]) === actual && (!m[2] || Number(m[2]) === actual);
 
   // 负向对照：把文档数字人为改错，必须判失败
@@ -1721,10 +1785,11 @@ function sc68() {
   const wrongGuarded = !/自检（(\d+) 条用例）/.test(wrongBody)
     || Number(/自检（(\d+) 条用例）/.exec(wrongBody)[1]) !== actual;
 
-  record('SC68', 'README 里的自检条数与实际登记一致（数字不得腐烂）',
-    'README 的目录树注释与运行段都必须等于实际用例数；数字写错必须被判失败',
-    `实际=${actual} 树注释=${mTree ? mTree[1] : '缺失'} 运行段=${mRun ? `${mRun[1]}/${mRun[2]}` : '缺失'} 防错有效=${wrongGuarded}`,
-    ok(mTree) && ok(mRun) && wrongGuarded);
+  record('SC69', '文档里的自检条数与实际登记一致（数字不得腐烂）',
+    'README 的目录树注释与运行段、进阶指南的命令表都必须等于实际用例数；数字写错必须被判失败',
+    `实际=${actual} 树注释=${mTree ? mTree[1] : '缺失'} 运行段=${mRun ? `${mRun[1]}/${mRun[2]}` : '缺失'}`
+    + ` 命令表=${mAdv ? mAdv[1] : '缺失'} 防错有效=${wrongGuarded}`,
+    ok(mTree) && ok(mRun) && ok(mAdv) && wrongGuarded);
 }
 
   sc51();
@@ -2109,7 +2174,13 @@ function sc58() {
  */
 function sc59() {
   const cli = readFileSync(path.join(KIT_ROOT, 'scripts', 'cli.mjs'), 'utf8');
-  const commands = [...cli.matchAll(/^\s*case '([a-z][a-z-]*)':/gm)].map((m) => m[1]);
+  // 只认**命令分发**里的 case（`switch (command)` 那一段）。
+  // 为什么必须限定：CLI 里还有别的 switch（如 `switch (r.action)` 的 'ok'/'stale'/'missing'），
+  // 全文扫描会把那些**分支名误当成命令**，要求它们也进文档 —— 是误报；
+  // 而误报会诱使人放宽断言，比漏报更坏。
+  const dispatcher = /\n\s*switch \(command\) \{([\s\S]*?)\n\s*\}\n/.exec(cli);
+  const dispatchBody = dispatcher ? dispatcher[1] : cli;
+  const commands = [...dispatchBody.matchAll(/^\s*case '([a-z][a-z-]*)':/gm)].map((m) => m[1]);
   const uniq = [...new Set(commands)];
 
   // 豁免清单：内部/被包装的命令。**必须写理由**（写不出理由就说明它该进文档）
@@ -2432,6 +2503,7 @@ function sc66() {
   sc66();
   sc67();
   sc68();
+  sc69();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

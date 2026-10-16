@@ -45,10 +45,10 @@ for c in "$HOME/.devflow-kit/bin/devflow" "./.devflow-kit/bin/devflow" "$HOME/.n
   [ -z "$DF" ] && [ -x "$c" ] && DF="$c"
 done
 if [ -z "$DF" ]; then
-  echo "找不到 devflow。三种修法："
+  echo "找不到 devflow。两种修法："
   echo "  ① git clone https://github.com/darkknight110/devflow-kit.git ~/.devflow-kit && ~/.devflow-kit/bin/devflow setup"
-  echo "  ② npm install -g devflow-kit"
-  echo "  ③ export DEVFLOW=<kit>/bin/devflow"
+  echo "  ② export DEVFLOW=<kit>/bin/devflow"
+  echo "  ⚠️ 不要用 npm：devflow-kit 这个包名属于另一个不相关的项目，装了也不是本工具。"
   exit 2
 fi
 export DEVFLOW="$DF"

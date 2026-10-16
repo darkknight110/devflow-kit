@@ -7,13 +7,15 @@
 > **第一次用？直接看 [`docs/00-quickstart.md`](docs/00-quickstart.md)** —— 三条命令装好、从提需求到发版的操作指南。
 > 需要契约判定、看板插件、多仓工作区等增强时，看 [`docs/08-advanced.md`](docs/08-advanced.md)。
 
-## 先拿到它（三选一）
+## 先拿到它
 
 ```bash
-git clone https://github.com/darkknight110/devflow-kit.git ~/.devflow-kit   # ① 直接克隆
-npm install -g devflow-kit                                                  # ② 全局安装
-npx devflow-kit --help                                                      # ③ 临时用一次
+git clone https://github.com/darkknight110/devflow-kit.git ~/.devflow-kit
 ```
+
+> **不走 npm**：`devflow-kit` 这个 npm 包名**属于另一个不相关的项目**（[dean0x/devflow](https://github.com/dean0x/devflow)）。
+> `npm install -g devflow-kit` / `npx devflow-kit` 能装成功，但装到的不是本工具 —— 所以本工具只通过 git clone 分发。
+> 装完用 `~/.devflow-kit/bin/devflow`（若想直接敲 `devflow`，自己加个别名或软链）。
 
 > **零依赖**：只用 Node 内置模块（Node ≥18），不需要 `npm install` 装依赖、不需要构建。
 
@@ -94,8 +96,8 @@ devflow-kit/
 │   └── roles.json              角色权限矩阵与确认点
 ├── scripts/
 │   ├── cli.mjs                 命令行装配层
-│   ├── selfcheck.mjs           门禁体系自检（32 条用例）
-│   └── lib/{manifest,checks,evidence,gate,state,doctor,template,adapter}.mjs
+│   ├── selfcheck.mjs           门禁体系自检（68 条用例）
+│   └── lib/{manifest,checks,evidence,gate,state,doctor,template,adapter,skill-sync}.mjs
 └── examples/
     ├── single-repo-service/        可运行样例工程（Node 形态）
     ├── verify-example.sh           端到端验收：draft → released + 新人零误判 + 确定性
@@ -124,12 +126,17 @@ devflow-kit/
 ## 验证（交付前必须全绿）
 
 ```bash
-node scripts/selfcheck.mjs            # 门禁体系自检：32/32
-bash examples/verify-example.sh       # 端到端（Node 形态，23 条断言）
-bash examples/verify-java-project.sh  # 端到端（Java/Maven 形态，17 条断言）
-bash examples/verify-stacks.sh        # 四栈交叉验收（25 条断言）
+bash examples/verify-all.sh           # ★ 一次跑完全部验收（自检 + 六套端到端），交付前跑这个
+node scripts/selfcheck.mjs            # 门禁体系自检：68/68
+bash examples/verify-example.sh       # 端到端（Node 形态，33 条断言）
+bash examples/verify-java-project.sh  # 端到端（Java/Maven 形态，25 条断言）
+bash examples/verify-stacks.sh        # 四栈交叉验收
+bash examples/verify-human-loop.sh    # 人的闭环：干净目录里逐句说人话跑通全链路
+bash examples/verify-tiers.sh         # 四档位差异都被正确执行
 bash examples/verify-independent.sh   # 独立视角验收：只按文档走一遍（文档卫生 + 陌生人路径）
 ```
+
+> 上表里的断言数只是量级参考；**是否全绿以 `verify-all.sh` 的退出码为准**（数字会随用例增加而变化）。
 
 `selfcheck` 会构造"恒真门禁""未定义状态""假测试通过""占位门禁"等**故意坏的输入**，断言引擎与 doctor 能正确拦下 —— 门禁自己也要被验证。
 （这些坏输入只存在于系统临时目录，跑完即清理。）

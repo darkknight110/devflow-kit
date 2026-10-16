@@ -26,15 +26,13 @@ cd <你的项目> && ~/.devflow-kit/bin/devflow init --name <项目名> \
 ## 第 0 步：拿到它（约 1 分钟）
 
 ```bash
-# 三选一
-git clone https://github.com/darkknight110/devflow-kit.git ~/.devflow-kit   # ① 克隆（推荐）
-npm install -g devflow-kit                                                   # ② 全局安装
-npx devflow-kit --help                                                       # ③ 临时用一次
+git clone https://github.com/darkknight110/devflow-kit.git ~/.devflow-kit
 ```
 
 **零依赖**：只用 Node 内置模块（Node ≥18），不需要 `npm install`、不需要构建。
 
-> 用 ② 或 ③ 时，把下文所有 `~/.devflow-kit/bin/devflow` 换成 `devflow`。
+> ⚠️ **不要用 `npm install -g devflow-kit` / `npx devflow-kit`**：这个 npm 包名属于另一个不相关的项目，
+> 命令会执行成功，但装到的不是本工具。本工具只通过 git clone 分发，下文一律用 `~/.devflow-kit/bin/devflow`。
 
 ---
 

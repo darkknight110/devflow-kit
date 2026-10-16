@@ -49,6 +49,7 @@ import { renderTemplate, TEMPLATE_FILES } from './lib/template.mjs';
 import { loadAdapters, detectAdapters, applyAdapter, auditAdapterRegex } from './lib/adapter.mjs';
 import { dirSizeKb, exists, readText, parseAcceptanceCriteria, parseVerification, parseUnverifiedItems, parseApprovals, isRealValue } from './lib/checks.mjs';
 import { runSelfcheck } from './selfcheck.mjs';
+import { addStamp } from './lib/skill-sync.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const kitSpecCache = {};
@@ -2415,18 +2416,11 @@ function cmdSetup(flags) {
       // 技能枚举是否跟随软链无法保证（对照：同目录下能用的 md-to-office 是真实目录）。
       // 装软链的风险是"看起来装了、其实不被发现"，属于本产品最反对的静默失效。
       const skillMd = path.join(src, 'SKILL.md');
-      let body = readFileSync(skillMd, 'utf8');
-      // ⚠️ 安装戳**必须放在 frontmatter 之后**：SKILL.md 的第一行必须是 `---`，
+      // ⚠️ 安装戳的插入规则在 `lib/skill-sync.mjs`（**单一来源**）：
+      // 戳**必须放在 frontmatter 之后** —— SKILL.md 首行必须是 `---`，
       // 否则 DSH 解析不到 frontmatter，技能会**从列表里消失**（实测踩到，且只有真实集成能发现）。
-      const stamp = `<!-- 由 devflow setup 安装（${new Date().toISOString().slice(0, 10)}）；`
-        + `kit 升级后请重跑 devflow setup --global 以刷新 -->`;
-      const fmEnd = body.indexOf('\n---', 4);   // 跳过开头的 ---
-      if (fmEnd >= 0) {
-        const nl = body.indexOf('\n', fmEnd + 1);
-        body = nl >= 0 ? `${body.slice(0, nl + 1)}${stamp}\n${body.slice(nl + 1)}` : `${body}\n${stamp}\n`;
-      } else {
-        body = `${stamp}\n${body}`;   // 无 frontmatter 的极端情况
-      }
+      // 自检 SC52/SC67 调用同一个函数校验，不再各写一份复刻。
+      const body = addStamp(readFileSync(skillMd, 'utf8'));
       rmSync(link, { force: true, recursive: true });
       mkdirSync(link, { recursive: true });
       writeFileSync(path.join(link, 'SKILL.md'), body, 'utf8');

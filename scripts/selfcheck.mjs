@@ -26,6 +26,7 @@ import { checkStandards } from './lib/standards.mjs';
 import { extractEndpoints, normalizePath, pathMatches } from '../tools/contract-scan.mjs';
 import { auditTemplates, renderTemplate, TEMPLATE_FILES } from './lib/template.mjs';
 import { createItem } from './lib/state.mjs';
+import { addStamp, stampFor, installedBodyProblem, compareSkill, compareInstalledSkill, STAMP_MARKER } from './lib/skill-sync.mjs';
 
 const KIT = {
   states: loadKitSpec('states'),
@@ -1612,27 +1613,118 @@ function sc52() {
   // 源文件本身必须合法
   const srcOk = body.startsWith('---') && /\nname:\s*devflow/.test(body) && /\nwhenToUse:/.test(body);
 
-  // 模拟 setup 的安装戳逻辑，验证生成结果仍合法
-  const stamp = '<!-- 由 devflow setup 安装（2026-10-14）；kit 升级后请重跑 devflow setup --global 以刷新 -->';
-  let out = body;
-  const fmEnd = out.indexOf('\n---', 4);
-  if (fmEnd >= 0) {
-    const nl = out.indexOf('\n', fmEnd + 1);
-    out = nl >= 0 ? `${out.slice(0, nl + 1)}${stamp}\n${out.slice(nl + 1)}` : `${out}\n${stamp}\n`;
-  } else { out = `${stamp}\n${out}`; }
+  // 用**生产函数**（cli.mjs 的 setup 调用的同一个）生成安装后的正文 —— 不做复刻。
+  // 之所以要改：复刻版会在 setup 改动后继续通过自检，等于没看守（本仓库反对的"同一事实两个来源"）。
+  const out = addStamp(body, new Date('2026-10-14T00:00:00Z'));
   const lines = out.split('\n');
-  const installedOk = lines[0] === '---' && /^name:\s*devflow/.test(lines[1] || '')
+  const fmEnd = lines.indexOf('---', 1);
+  const installedOk = !installedBodyProblem(out)
+    && lines[0] === '---'
+    && /^name:\s*devflow/.test(lines[1] || '')
     && lines.some((l) => /^whenToUse:/.test(l))
-    && lines.some((l) => l.includes('devflow setup'));   // 戳确实写进去了
+    && fmEnd >= 0
+    && lines.slice(fmEnd + 1).some((l) => l.includes(STAMP_MARKER));   // 戳确实写进去了，且在 frontmatter 之后
 
-  // 反证：若把戳放在开头，必须被判为非法（证明这条校验真的有效）
-  const bad = `${stamp}\n${body}`;
-  const badRejected = bad.split('\n')[0] !== '---';
+  // 负向对照（两条，证明这条校验真的有效）：
+  //   ① 戳放开头 ⇒ 首行不是 --- ⇒ 必须被判非法（frontmatter 被破坏，技能会从列表消失）
+  //   ② 戳里的日期不同 ⇒ 比对必须仍判"一致"（日期属于正常差异，不能误报成分叉）
+  const bad = `${stampFor()}\n${body}`;
+  const badRejected = bad.split('\n')[0] !== '---' && !!installedBodyProblem(bad);
+  const dateInsensitive = compareSkill({
+    sourceText: body, installedText: addStamp(body, new Date('2020-01-01T00:00:00Z')), installedExists: true,
+  }).verdict === 'ok';
 
   record('SC52', '安装的技能必须能被 DSH 识别（SKILL.md 首行是 ---，戳在 frontmatter 之后）',
-    '源文件合法；安装后首行仍是 ---；戳已写入但不在首行；戳放开头会被判非法',
-    `源合法=${srcOk} 安装后合法=${installedOk} 首行=${JSON.stringify(lines[0])} 反证有效=${badRejected}`,
-    srcOk && installedOk && badRejected);
+    '生产的安装正文合法；首行仍是 ---；戳在 frontmatter 之后；戳放开头被判非法；戳内日期不同不算分叉',
+    `源合法=${srcOk} 安装后合法=${installedOk} 首行=${JSON.stringify(lines[0])} 放开头被拒=${badRejected} 日期不敏感=${dateInsensitive}`,
+    srcOk && installedOk && badRejected && dateInsensitive);
+}
+
+/**
+ * SC67：**已安装的技能副本不得与 kit 里的源文件静默分叉。**
+ *
+ * 依据（真实踩到）：技能装成 `<dsh home>/skills/devflow/SKILL.md` 是**实体文件**（不是软链），
+ * 所以 kit 里改了 SKILL.md，已装副本**不会自动更新**。而 agent 找 CLI 时读的正是那份副本 ——
+ * 本次真实案例：源文件里的 `npm install -g devflow-kit` 已删除，副本里还留着，
+ * 于是 agent 会继续建议用户去装**同名的别人项目**，且全程无任何报错。分叉是静默的，所以必须由机器看守。
+ *
+ * 判定规则：
+ *   · 副本不存在 ⇒ **不适用**（全新 clone / CI 上本来没装过，那不是回归）；
+ *   · 副本存在但形态非法或缺安装戳 ⇒ 失败（setup 的生产函数被改坏了）；
+ *   · 剥掉安装戳后与源不一致 ⇒ 失败，并要求重跑 `devflow setup`。
+ */
+function sc67() {
+  const real = compareInstalledSkill(path.join(KIT_ROOT, 'skill', 'SKILL.md'));
+
+  // 负向对照①：刻意让正文差一个字节，比对必须能抓到（证明"不一致"真的判得出来）
+  const bogus = compareSkill({
+    sourceText: '---\nname: devflow\n---\nA\n',
+    installedText: addStamp('---\nname: devflow\n---\nB\n'),
+    installedExists: true,
+  }).verdict === 'diverged';
+
+  // 负向对照②：形态非法（戳放开头、破坏 frontmatter）必须被判非法，而不是当成"内容一致"放过
+  const malformedCaught = compareSkill({
+    sourceText: '---\nname: devflow\n---\nbody\n',
+    installedText: `${stampFor()}\n---\nname: devflow\n---\nbody\n`,
+    installedExists: true,
+  }).verdict === 'malformed';
+
+  // 负向对照③：源缺 frontmatter ⇒ 生产函数必须抛错（而不是产出会从技能列表消失的副本）
+  let noFrontmatterRejected = false;
+  try { addStamp('没有 frontmatter 的正文\n'); } catch { noFrontmatterRejected = true; }
+
+  const detail = `副本=${real.installedPath} 存在=${real.installedExists} 结论=${real.verdict}`
+    + ` 不一致可检出=${bogus} 形态非法可检出=${malformedCaught} 缺frontmatter被拒=${noFrontmatterRejected}`
+    + (real.reason ? ` 原因=${real.reason}` : '');
+  const controlsOk = bogus && malformedCaught && noFrontmatterRejected;
+
+  if (real.verdict === 'missing') {
+    // 如实标注"未执行"，不谎报通过：这台机器上没装过技能，就没有东西可比对
+    record('SC67', '已安装技能与 kit 源文件不得静默分叉（本机未安装技能，未执行比对）',
+      '副本不存在 ⇒ 不适用；存在 ⇒ 剥掉安装戳后必须与源逐字一致，否则要求重跑 devflow setup',
+      `${detail}（不适用：副本不存在）`,
+      controlsOk);
+    return;
+  }
+
+  record('SC67',
+    real.verdict === 'diverged'
+      ? '已安装技能与 kit 源文件静默分叉 —— 修法：重跑 devflow setup 刷新技能副本'
+      : '已安装技能与 kit 源文件不得静默分叉',
+    '剥掉安装戳后与源逐字一致；不一致可检出；形态非法可检出；源缺 frontmatter 时拒绝生产',
+    detail + (real.verdict === 'diverged' ? '；修法：重跑 devflow setup' : ''),
+    real.verdict === 'ok' && controlsOk);
+}
+
+/**
+ * SC68：README 里写的自检条数必须与实际一致。
+ *
+ * 依据（真实踩到）：README 长期写着"自检（32 条用例）"与"自检：32/32"，而实际早已是 66 条 ——
+ * 数字漂了没人发现，读者看到的是一句假话。这类"文档里的具体数字"最容易腐烂，
+ * 所以钉成机器校验：数字来源是**本文件实际登记的用例**，不是人手抄。
+ *
+ * 判据：README 里两处（目录树注释、运行段）的数字都必须等于实际条数；
+ * 并带负向对照，证明"对不上"确实会被判失败。
+ */
+function sc68() {
+  // 条数 = 已登记的 + 本用例自己（本函数在 record 之前执行，故显式 +1）。
+  // 这样计数不依赖"sc68 必须被最后调用"这一隐含约定。
+  const actual = [...new Set(cases.map((c) => c.id))].filter((id) => /^SC\d+$/.test(id)).length + 1;
+  const body = readFileSync(path.join(KIT_ROOT, 'README.md'), 'utf8');
+  const mTree = /自检（(\d+) 条用例）/.exec(body);
+  const mRun = /自检：(\d+)\/(\d+)/.exec(body);
+  const ok = (m) => !!m && Number(m[1]) === actual && (!m[2] || Number(m[2]) === actual);
+
+  // 负向对照：把文档数字人为改错，必须判失败
+  const wrongBody = body.replace(/自检（\d+ 条用例）/, '自检（0 条用例）');
+  const wrongGuarded = !/自检（(\d+) 条用例）/.test(wrongBody)
+    || Number(/自检（(\d+) 条用例）/.exec(wrongBody)[1]) !== actual;
+
+  record('SC68', 'README 里的自检条数与实际登记一致（数字不得腐烂）',
+    'README 的目录树注释与运行段都必须等于实际用例数；数字写错必须被判失败',
+    `实际=${actual} 树注释=${mTree ? mTree[1] : '缺失'} 运行段=${mRun ? `${mRun[1]}/${mRun[2]}` : '缺失'} 防错有效=${wrongGuarded}`,
+    ok(mTree) && ok(mRun) && wrongGuarded);
 }
 
   sc51();
@@ -2338,6 +2430,8 @@ function sc66() {
 
   sc65();
   sc66();
+  sc67();
+  sc68();
   return {
     kitRoot: KIT_ROOT,
     at: new Date().toISOString(),

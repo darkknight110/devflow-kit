@@ -1,6 +1,6 @@
 {
   "name": "devflow-kit",
-  "version": "1.24.0",
+  "version": "1.25.0",
   "description": "零依赖研发工作流：把「讨论需求 → 分派任务（前端/后端/数据库）→ 实现 → 测试 → 发布」跑成一条可机械验证的路径。",
   "keywords": [
     "workflow",

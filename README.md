@@ -160,6 +160,21 @@ bash examples/verify-independent.sh   # 独立视角验收：只按文档走一�
 
 ---
 
+## 相关项目
+
+**[md-to-office](https://github.com/darkknight110/md-to-office)** —— Markdown → 排版规范的中文 Word(.docx)/PDF。
+
+同一位维护者维护，与 devflow 的「产出交付物」环节配套：devflow 把需求推到发布，最终的方案／报告／验收记录
+往往要交给不装工具的人看，Word/PDF 是那个场合的通用格式。它解决一个具体痛点——Markdown 里用
+ASCII 字符画（`┌─┐│└┘`）画的架构图，转成 Word/PDF 后必然错位（比例字体 + 中文占 2 格），
+所以它按 `md2office.spec.json` 生成真正的分层框图**自动替换**稿内字符画。
+
+- 仓库：https://github.com/darkknight110/md-to-office
+- 许可：MIT
+- 只出 Word 时零外部依赖（仅 `python-docx` + `Pillow`）
+
+---
+
 ## 许可
 
 MIT。

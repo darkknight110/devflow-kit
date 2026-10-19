@@ -37,6 +37,7 @@ import {
   instructionChainKb,
 } from './lib/manifest.mjs';
 import { createItem, evaluateItem, itemsDir, localItemsDir, machineDir, allItemIds, listItems, recordRun, advance, archive, readStatus, rawState, appendEvent, readEvents } from './lib/state.mjs';
+import { renderTerminal, dispW, padW } from './lib/docview.mjs';
 import { humanEvent } from './lib/humanize.mjs';
 import { evaluateGates, summarize, resolveArtifactIn } from './lib/gate.mjs';
 import { runProjectGates } from './lib/evidence.mjs';
@@ -269,6 +270,17 @@ const COMMAND_HELP = {
       '不带 item 且只有一个变更时自动选中它。',
     ],
     examples: ['devflow status', 'devflow status 2026-10-13-order-export --digest'],
+  },
+  doc: {
+    usage: 'devflow doc <变更> [文档] [--raw] [--width <n>] [--json]',
+    what: '在终端里读阶段文档（不用打开浏览器）。不带文档名时列出该变更的全部文档。',
+    notes: [
+      '变更编号支持模糊匹配：devflow doc degrade-subscription 即可，不必写全日期。',
+      '文档名支持简写：SPEC / spec.md / release/report.md。',
+      '--raw 原样输出 Markdown；--width 控制折行宽度（默认取终端宽度，上限 110）。',
+      '缺失的文档不编造，会告诉你属于哪个阶段、用哪条 fill 命令生成。',
+    ],
+    examples: ['devflow doc degrade-subscription', 'devflow doc degrade-subscription SPEC.md', 'devflow doc degrade-subscription verification.md --raw'],
   },
   'gate run': {
     usage: 'devflow gate run <item> [--to <状态>] [--json]',
@@ -3547,15 +3559,6 @@ function cmdWorkspaceInit(root, flags) {
   ].filter(Boolean).join('\n'), { file, members });
 }
 
-/**
- * 终端表格对齐：按**显示宽度**补空格。
- * padEnd 按 UTF-16 码元计数，中文占 2 列却只算 1，长英文名又会溢出固定列宽
- * （实测："postgres-ssl-starter" 把后面的类型列直接顶到名字上）。
- */
-const dispW = (s) => [...String(s)].reduce((n, ch) => n
-  + (/[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(ch) ? 2 : 1), 0);
-const padW = (s, w) => String(s) + ' '.repeat(Math.max(0, w - dispW(s)));
-
 function cmdWorkspace(flags, positional) {
   const sub = (positional || [])[0];
   // 创建/维护：修掉"只能读不能建"的缺口
@@ -3620,13 +3623,129 @@ function cmdWorkspace(flags, positional) {
   out(flags, lines.join('\n'), { workspace: ws.workspace, members: members.map((m) => ({ name: m.name, ok: m.loaded.ok, items: m.items.length, errors: m.loaded.errors })) });
 }
 
+/**
+ * devflow doc —— 在**终端**里读阶段文档，不用打开浏览器。
+ *
+ * 为什么要有它：看板与文档视图是浏览器形态，但「翻一眼 SPEC 看判据是什么」
+ * 「读 verification 看留了什么证据」是最高频的动作 —— 为这个开浏览器不划算。
+ *
+ * 用法：
+ *   devflow doc <变更>              列出该变更的全部阶段文档（有/无、阶段、大小）
+ *   devflow doc <变更> <文档>       打印渲染后的正文（终端友好：标题/表格/列表/代码块）
+ *   devflow doc <变更> <文档> --raw 原样输出 Markdown（便于复制）
+ *
+ * 约定：
+ *   · 变更编号支持**模糊匹配**（写 degrade-subscription 即可，不必写全日期）；
+ *   · 文档名支持简写（SPEC / spec.md / release/report.md）；
+ *   · 缺失的文档不编造，直接告诉你在哪个阶段、用哪条命令生成。
+ */
+function cmdDoc(flags, positional) {
+  const { root } = resolveProject(flags);
+  const wanted = flags.item || positional[0];
+  if (!wanted) die('请指定变更：devflow doc <变更> [文档]', 2);
+
+  const items = listItems(root).map((x) => x.itemId);
+  let itemId = wanted;
+  if (!items.includes(wanted)) {
+    const hit = items.filter((x) => x.includes(wanted));
+    if (hit.length === 1) itemId = hit[0];
+    else if (hit.length > 1) die(`"${wanted}" 匹配到多个变更：\n  ${hit.join('\n  ')}`, 2);
+    else {
+      die(`没有这个变更：${wanted}\n  可用：\n  ${items.length ? items.join('\n  ') : '（无）'}`, 2);
+      return;
+    }
+  }
+
+  const dir = machineDir(root, itemId) || path.join(itemsDir(root), itemId);
+
+  // 文档清单：先按**阶段顺序**取模板声明的产物（保证语义顺序），再补其它已知产物
+  const states = spec('states').states;
+  const ORDER = ['draft', 'spec_ready', 'contracted', 'implementing', 'tested', 'verified', 'released'];
+  const cat = [];
+  const seen = new Set();
+  for (const k of ORDER) {
+    for (const f of (states[k]?.required || [])) {
+      if (seen.has(f)) continue;
+      seen.add(f);
+      cat.push({ file: f, stage: states[k].name || k, key: k });
+    }
+  }
+  for (const rel of ['GOAL.md', 'SPEC.md', 'CLARIFY.md', 'CONTRACT.md', 'TASKS.md',
+    'coding_report.md', 'verification.md', 'APPROVALS.md', 'release/report.md']) {
+    if (seen.has(rel)) continue;
+    seen.add(rel);
+    cat.push({ file: rel, stage: '—', key: null });
+  }
+
+  // 统一按「产物常规范序」排，避免 CLARIFY 这类未被阶段声明引用的文档掉到最后
+  const CANON = ['GOAL.md', 'SPEC.md', 'CLARIFY.md', 'CONTRACT.md', 'TASKS.md',
+    'coding_report.md', 'verification.md', 'APPROVALS.md', 'release/report.md'];
+  const cidx = (f) => { const i = CANON.indexOf(f); return i < 0 ? 99 : i; };
+  cat.sort((a, b) => cidx(a.file) - cidx(b.file));
+
+  const rows = cat.map((c) => {
+    const fp = resolveArtifactIn(dir, c.file);
+    let bytes = 0;
+    if (fp) { try { bytes = statSync(fp).size; } catch { bytes = 0; } }
+    return { ...c, filePath: fp, bytes, exists: Boolean(fp) };
+  });
+  const brief = rows.map(({ filePath, ...r }) => r);
+
+  const nameArg = positional[1];
+  if (!nameArg) {
+    const w1 = Math.max(dispW('文档'), ...rows.map((r) => dispW(r.file))) + 2;
+    const w2 = Math.max(dispW('阶段'), ...rows.map((r) => dispW(r.stage))) + 2;
+    const lines = [
+      `${paint('变更', 'bold')}  ${itemId}`,
+      `  目录：${dir}`,
+      '',
+      `  ${padW('文档', w1)}${padW('阶段', w2)}${padW('状态', 10)}大小`,
+      ...rows.map((r) => `  ${padW(r.file, w1)}${padW(r.stage, w2)}`
+        + `${padW(r.exists ? '✓ 已产出' : '✗ 缺失', 10)}${r.exists ? `${(r.bytes / 1024).toFixed(1)} KB` : '—'}`),
+      '',
+      `  读某一篇：${paint(`devflow doc ${itemId} SPEC.md`, 'bold')}`,
+      '  缺失的：  devflow fill <变更> --to <阶段>',
+    ];
+    out(flags, lines.join('\n'), { item: itemId, dir, docs: brief });
+    return;
+  }
+
+  const norm = (x) => String(x).toLowerCase().replace(/^\.?\//, '');
+  let hit = rows.find((r) => norm(r.file) === norm(nameArg));
+  if (!hit) {
+    const cands = rows.filter((r) => norm(r.file).includes(norm(nameArg)));
+    if (cands.length === 1) hit = cands[0];
+    else if (cands.length > 1) die(`"${nameArg}" 匹配到多篇：\n  ${cands.map((c) => c.file).join('\n  ')}`, 2);
+  }
+  if (!hit) die(`这个变更没有文档：${nameArg}\n  可用：\n  ${rows.map((r) => r.file).join('\n  ')}`, 2);
+  if (!hit.exists) {
+    die(`${hit.file} 尚未产出（属于「${hit.stage}」阶段）\n`
+      + `  生成模板：devflow fill ${itemId} --to ${hit.key || 'spec_ready'}`, 2);
+    return;
+  }
+
+  const text = readFileSync(hit.filePath, 'utf8');
+  if (flags.json) { out(flags, '', { item: itemId, file: hit.file, path: hit.filePath, content: text }); return; }
+  if (flags.raw) { process.stdout.write(text.endsWith('\n') ? text : `${text}\n`); return; }
+
+  const width = Number(flags.width) || Math.min(process.stdout.columns || 100, 110);
+  process.stdout.write([
+    `${paint('变更', 'bold')}  ${itemId}`,
+    `  ${paint(hit.file, 'bold')}　·　${hit.stage} 阶段`,
+    `  ${hit.filePath}`,
+    '',
+  ].join('\n') + '\n');
+  process.stdout.write(renderTerminal(text, { width: Math.max(50, width - 2), paint }).join('\n') + '\n');
+  out(flags, '', { item: itemId, file: hit.file, path: hit.filePath, content: text });
+}
+
 function cmdVersion(flags) {
   const v = {
     kit: kitVersion(),
     node: process.version,
     kitRoot: KIT_ROOT,
     spec: Object.keys(allSpec()),
-    commands: ['init', 'doctor', 'adapters', 'new', 'fill', 'status', 'gate run', 'advance', 'report', 'archive', 'workspace', 'selfcheck', 'skill', 'version'],
+    commands: ['init', 'doctor', 'adapters', 'new', 'fill', 'status', 'doc', 'gate run', 'advance', 'report', 'archive', 'workspace', 'selfcheck', 'skill', 'version'],
   };
   out(flags, [
     `devflow-kit ${v.kit}`,
@@ -3720,6 +3839,7 @@ function usage() {
   adapters [--apply <栈>] [--dry-run] [--demo]
                        列出/检测技术栈适配器；--apply 只补缺失的脚本与门禁声明
   status [item]        查看变更 / 项目状态；--all 列出全部；--digest 输出固定摘要
+  doc <item> [文档]    在终端读阶段文档（不带文档名则列出清单）；--raw 原样输出
   gate run [item]      执行项目门禁并留证据，随后评估 G0..G7
   advance <item> --to <状态> [--force]
                        推进状态（门禁未通过则拒绝；--force 会留痕）
@@ -3792,6 +3912,7 @@ try {
     case 'ci': cmdCi(flags); break;
     case 'adapters': cmdAdapters(flags); break;
     case 'status': cmdStatus(flags, positional); break;
+    case 'doc': cmdDoc(flags, positional); break;
     case 'gate': {
       const sub = positional.shift();
       if (sub !== 'run') die(`未知子命令：gate ${sub || ''}（目前只支持 gate run）`, 2);

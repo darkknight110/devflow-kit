@@ -734,14 +734,16 @@ function cmdStatus(flags, positional) {
   const items = listItems(root);
   const detail = items.map((i) => evaluateItem({ projectRoot: root, itemId: i.itemId, kitSpec: allSpec(), config: loaded.config, cwd: process.cwd() }));
   const chain = instructionChainKb(process.cwd(), root);
+  // 变更编号实际长度差异大（19~31 字符），固定列宽会把"档"顶到编号上
+  const idW = Math.max(dispW('变更'), ...detail.map((d) => dispW(d.itemId || '?'))) + 2;
   const lines = [
     `${paint('项目', 'bold')}  ${loaded.config?.devflow?.project || path.basename(root)}    规模档：${loaded.config?.profile || 'team'}    kit ${kitVersion()}`,
     `  指令链：${chain.kb}k${chain.files.length ? `（${chain.files.join('、')}）` : ''}`,
     '',
-    '  变更                              档   状态          门禁',
+    `  ${padW('变更', idW)}${padW('档', 4)}${padW('状态', 15)}门禁`,
     ...detail.map((d) => {
       const marks = (d.gates || []).filter((g) => !['G0', 'G5', 'G6', 'G7'].includes(g.gate)).map((g) => `${g.gate}${VERDICT_STYLE[g.verdict].symbol}`).join(' ');
-      return `  ${(d.itemId || '?').padEnd(34)}${(spec('states').tiers[d.tier]?.name || d.tier).padEnd(3)} ${(d.stateName || '-').padEnd(13)}${marks}`;
+      return `  ${padW(d.itemId || '?', idW)}${padW(spec('states').tiers[d.tier]?.name || d.tier, 4)}${padW(d.stateName || '-', 15)}${marks}`;
     }),
     '',
     detail.length === 0 ? '  （暂无变更：用 devflow new 新建）' : '',
@@ -3545,6 +3547,15 @@ function cmdWorkspaceInit(root, flags) {
   ].filter(Boolean).join('\n'), { file, members });
 }
 
+/**
+ * 终端表格对齐：按**显示宽度**补空格。
+ * padEnd 按 UTF-16 码元计数，中文占 2 列却只算 1，长英文名又会溢出固定列宽
+ * （实测："postgres-ssl-starter" 把后面的类型列直接顶到名字上）。
+ */
+const dispW = (s) => [...String(s)].reduce((n, ch) => n
+  + (/[\u1100-\u115F\u2E80-\uA4CF\uAC00-\uD7A3\uF900-\uFAFF\uFE30-\uFE6F\uFF00-\uFF60\uFFE0-\uFFE6]/.test(ch) ? 2 : 1), 0);
+const padW = (s, w) => String(s) + ' '.repeat(Math.max(0, w - dispW(s)));
+
 function cmdWorkspace(flags, positional) {
   const sub = (positional || [])[0];
   // 创建/维护：修掉"只能读不能建"的缺口
@@ -3593,13 +3604,16 @@ function cmdWorkspace(flags, positional) {
     }
     return { name: m.name, kind: m.kind, root, loaded, items };
   });
+  // 列宽按实际内容算（至少容纳表头），避免长项目名把后面几列顶歪
+  const nameW = Math.max(dispW('项目'), ...members.map((m) => dispW(m.name))) + 2;
+  const kindW = Math.max(dispW('类型'), ...members.map((m) => dispW(m.kind || '-'))) + 2;
   const lines = [
     `${paint('工作区', 'bold')}  ${ws.workspace?.name || path.basename(wsRoot)}    kit ${kitVersion()}`,
     '',
-    '  项目            类型        变更                档   状态          门禁',
+    `  ${padW('项目', nameW)}${padW('类型', kindW)}${padW('变更', 19)}${padW('档', 3)} ${padW('状态', 13)}门禁`,
     ...members.flatMap((m) => (m.items.length
-      ? m.items.map((d) => `  ${m.name.padEnd(15)}${String(m.kind || '-').padEnd(12)}${d.itemId.padEnd(19)}${(spec('states').tiers[d.tier]?.name || d.tier).padEnd(3)} ${(d.stateName || '-').padEnd(13)}${(d.gates || []).filter((g) => !['G0', 'G1b', 'G4b'].includes(g.gate)).map((g) => `${g.gate}${VERDICT_STYLE[g.verdict].symbol}`).join(' ')}`)
-      : [`  ${m.name.padEnd(15)}${String(m.kind || '-').padEnd(12)}${'（无在办变更）'}`])),
+      ? m.items.map((d) => `  ${padW(m.name, nameW)}${padW(m.kind || '-', kindW)}${d.itemId.padEnd(19)}${(spec('states').tiers[d.tier]?.name || d.tier).padEnd(3)} ${(d.stateName || '-').padEnd(13)}${(d.gates || []).filter((g) => !['G0', 'G1b', 'G4b'].includes(g.gate)).map((g) => `${g.gate}${VERDICT_STYLE[g.verdict].symbol}`).join(' ')}`)
+      : [`  ${padW(m.name, nameW)}${padW(m.kind || '-', kindW)}${'（无在办变更）'}`])),
     '',
     ...members.filter((m) => !m.loaded.ok).map((m) => `  ${paint('✗ 不可用', 'red')} ${m.name}：${m.loaded.errors.join('；')}`),
   ];

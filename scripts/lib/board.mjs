@@ -294,6 +294,11 @@ export function renderBoardHtml(projectName) {
  .dot-live{width:7px; height:7px; border-radius:50%; background:var(--done);
    box-shadow:0 0 0 3px rgba(47,191,127,.16), 0 0 10px var(--done)}
  .dot-live.off{background:var(--blocked); box-shadow:0 0 0 3px rgba(242,85,90,.16), 0 0 10px var(--blocked)}
+ /* 文档视图入口：常驻头部，一点即开（新标签页，不打断当前看板） */
+ .navview{display:inline-flex; align-items:center; gap:5px; font-size:12px; text-decoration:none;
+   color:var(--accent); border:1px solid rgba(90,140,255,.45); border-radius:999px; padding:4px 11px;
+   background:rgba(90,140,255,.10); transition:.15s}
+ .navview:hover{background:rgba(90,140,255,.22); color:#fff; border-color:var(--accent)}
  /* 指标卡：等宽数字 + 渐隐顶线 */
  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:12px; padding:18px 26px 6px}
  .stat{
@@ -386,6 +391,8 @@ export function renderBoardHtml(projectName) {
 <header>
   <h1>devflow 看板</h1>
   <span class="muted" style="font-size:12px">${projectName}</span>
+  <a class="navview" href="/view" target="_blank" rel="noopener"
+     title="打开完整文档视图（所有变更 × 所有阶段文档）">📄 文档视图</a>
   <div class="live"><span id="live" class="dot-live"></span><span id="liveTxt">连接中…</span></div>
   <div class="ws">
     <span class="muted">工作区</span>
@@ -489,7 +496,6 @@ function timeline(events){
       + '<div class="at" title="' + esc(fmtLocal(e.at)) + '">' + ago(e.at) + '</div></div>'
   ).join('') + '</div>';
 }
-}
 function openTask(itemId, taskId){
   const c = STATE.changes.find((x) => x.itemId === itemId); if (!c) return;
   const t = c.tasks.find((x) => x.t === taskId); if (!t) return;
@@ -591,7 +597,7 @@ startStream();
 
 // ── 服务 ───────────────────────────────────────────────────
 
-export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onReady, onError }) {
+export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onReady, onError, viewHtml }) {
   /** 默认根（启动时确定）；每个请求都可以用 ?root= 覆盖 */
   const defaultRoot = projectRoot;
 
@@ -725,6 +731,25 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
         lastKeys.set(root, keyFor(root));
       } catch { /* 忽略 */ }
       req.on('close', () => clients.delete(res));
+      return;
+    }
+    // /view —— **完整文档视图**（把 devflow view 的单文件视图按需渲染到这里）。
+    // 有了它，用户只需要记一个地址：http://127.0.0.1:<port>/view
+    // （静态文件仍可单独生成/转发，二者是同一份数据的两种取用方式）
+    if (url.pathname === '/view' || url.pathname === '/view/') {
+      try {
+        const html = typeof viewHtml === 'function' ? viewHtml() : null;
+        if (!html) {
+          res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8' });
+          res.end('视图暂不可用（服务未提供渲染器）');
+          return;
+        }
+        res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+        res.end(html);
+      } catch (e) {
+        res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
+        res.end('视图渲染失败：' + (e && e.message ? e.message : e));
+      }
       return;
     }
     res.writeHead(404, { 'content-type': 'text/plain; charset=utf-8' });

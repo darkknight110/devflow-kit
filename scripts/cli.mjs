@@ -50,6 +50,8 @@ import { loadAdapters, detectAdapters, applyAdapter, auditAdapterRegex } from '.
 import { dirSizeKb, exists, readText, parseAcceptanceCriteria, parseVerification, parseUnverifiedItems, parseApprovals, isRealValue } from './lib/checks.mjs';
 import { runSelfcheck } from './selfcheck.mjs';
 import { addStamp, syncInstalledSkill } from './lib/skill-sync.mjs';
+// 文档默认渲染成排版好的 HTML（源码仍可展开查看）——零依赖实现见 lib/markdown.mjs
+import { mdToHtml } from './lib/markdown.mjs';
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const kitSpecCache = {};
@@ -1857,10 +1859,13 @@ function cmdBoard(flags) {
     projectRoot: root,
     port,
     intervalMs,
+    // /view 复用 devflow view 的渲染结果：一个地址就能看全部阶段文档
+    viewHtml: () => (root ? cmdView({ root }, { returnHtml: true }) : null),
     onReady: (addr) => {
       process.stdout.write([
         '',
         `  ${paint('✓ 看板已启动', 'green')}  ${paint(addr, 'bold')}`,
+        `  ${paint('✓ 文档视图', 'green')}    ${paint(addr + '/view', 'bold')}  （全部变更与各阶段文档）`,
         `  （在聊天里请把上面这个地址作为可点击链接给出；不要只说"已启动"）`,
         `  内容：节点任务数 · 任务卡（状态/负责人/阻塞原因）· 点任务看「前世今生」`,
         `  实时：文件变化 2 秒内自动刷新（SSE）`,
@@ -1963,7 +1968,7 @@ function cmdGraph(flags) {
   out(flags, parts.join('\n\n'), { kind: 'tasks', items: withTasks.length });
 }
 
-function cmdView(flags) {
+function cmdView(flags, opts = {}) {
     // 工作区根没有 devflow.json ⇒ 视图在那里也要能用（它本来就该汇总整个工作区）
   const { root, loaded, marker } = (() => {
     const r = resolveProjectOrWorkspace(flags);
@@ -2154,7 +2159,8 @@ function cmdView(flags) {
         <summary><span class="ok">✓</span> <span class="mono">${esc(d.file)}</span>${stageTag}
           <span class="dlabel">${esc(docLabelOf(d.file))}</span>
           <span class="copy">查看全文</span></summary>
-        <pre class="docbody">${esc(body)}</pre>
+        <div class="docbody md">${mdToHtml(body)}</div>
+        <details class="raw"><summary>查看 Markdown 源码</summary><pre class="docbody">${esc(body)}</pre></details>
       </details>`;
     }).join('');
     const produced = catalog.filter((d) => d.ok).length;
@@ -2330,6 +2336,36 @@ function cmdView(flags) {
   .sfitem:hover{color:#1d4ed8}
   ul.deplist{list-style:none;margin:6px 0 0;padding:0;font-size:12px}
   ul.deplist li{padding:2px 0}
+  /* ── 文档正文：渲染后的 Markdown（默认视图） ────────────── */
+  .docbody.md{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:14px 16px;margin:6px 0 10px;
+    max-height:560px;overflow:auto;line-height:1.7;font-size:13.5px;color:#1f2937}
+  .docbody.md h1,.docbody.md h2,.docbody.md h3,.docbody.md h4,.docbody.md h5,.docbody.md h6{margin:14px 0 8px;line-height:1.35}
+  .docbody.md h1{font-size:19px;border-bottom:1px solid var(--bd);padding-bottom:6px}
+  .docbody.md h2{font-size:16px;border-bottom:1px solid var(--bd);padding-bottom:4px}
+  .docbody.md h3{font-size:14.5px}
+  .docbody.md h4{font-size:13.5px;color:#374151}
+  .docbody.md>h1:first-child,.docbody.md>h2:first-child,.docbody.md>p:first-child{margin-top:0}
+  .docbody.md p{margin:8px 0}
+  .docbody.md ul,.docbody.md ol{margin:8px 0;padding-left:22px}
+  .docbody.md li{margin:3px 0}
+  .docbody.md blockquote{margin:10px 0;padding:6px 12px;border-left:3px solid #cbd5e1;background:#f8fafc;color:#475569}
+  .docbody.md blockquote p{margin:4px 0}
+  .docbody.md hr{border:0;border-top:1px solid var(--bd);margin:14px 0}
+  .docbody.md a{color:#2563eb}
+  .docbody.md code{background:#f1f5f9;border:1px solid var(--bd);border-radius:4px;padding:1px 5px;
+    font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px}
+  .docbody.md pre.code{background:#0f172a;color:#e2e8f0;padding:10px 12px;border-radius:6px;overflow:auto;
+    font-size:12px;line-height:1.55;margin:10px 0}
+  .docbody.md pre.code code{background:none;border:0;padding:0;color:inherit;font-size:inherit}
+  .docbody.md .tablewrap{overflow:auto;margin:10px 0}
+  .docbody.md table{width:100%;border-collapse:collapse;font-size:12.5px}
+  .docbody.md th,.docbody.md td{border:1px solid var(--bd);padding:6px 9px;text-align:left;vertical-align:top}
+  .docbody.md th{background:#f8fafc;font-weight:600;color:#374151}
+  .docbody.md tbody tr:nth-child(even) td{background:#fcfdff}
+  details.raw{margin:0 0 10px}
+  details.raw>summary{cursor:pointer;color:var(--mut);font-size:12px;list-style:none}
+  details.raw>summary::-webkit-details-marker{display:none}
+  details.raw>summary:hover{color:#111827}
 </style></head><body>
 <h1>devflow 视图 · ${esc(loaded.config?.devflow?.project || path.basename(root))}</h1>
 <div class="sub">${esc(root)}　·　生成于 ${esc(localTime(new Date().toISOString()))}</div>
@@ -2346,7 +2382,7 @@ ${items.length ? `<section class="card"><h2>需求流转总览</h2>
   <p class="muted small">点任意变更跳到它下面。文档锚点形如 <code class="mono">#doc-&lt;变更&gt;-&lt;文档&gt;</code>，可直接分享。</p>
 </section>` : ''}
 ${changeHtml || '<section class="card"><p class="muted">暂无在办变更。可在对话里提出一个需求开始。</p></section>'}
-${items[0] && items[0].arch ? `<section class="card"><details class="arch"><summary>项目架构与约定（.devflow/architecture.md）</summary><pre class="docbody">${esc(items[0].arch)}</pre></details></section>` : ''}
+${items[0] && items[0].arch ? `<section class="card"><details class="arch"><summary>项目架构与约定（.devflow/architecture.md）</summary><div class="docbody md">${mdToHtml(items[0].arch)}</div></details></section>` : ''}
 <footer>本文件是渲染产物（按需重算，不入库）。数据来源：变更状态、TASKS.md 的任务级状态、体检结论。
 <!-- 图形渲染：**不依赖任何 CDN**。阶段流转与任务依赖已改为原生 HTML，
      离线打开与断网环境下的显示完全一致（此前用 Mermaid CDN，失败时会露出源码）。 -->
@@ -2431,6 +2467,8 @@ ${items[0] && items[0].arch ? `<section class="card"><details class="arch"><summ
 </footer>
 </body></html>`;
 
+  // 供 board 的 /view 路由复用：只渲染、不落盘、不打印
+  if (opts.returnHtml) return html;
   const full = path.isAbsolute(outFile) ? outFile : path.join(root, outFile);
   mkdirSync(path.dirname(full), { recursive: true });   // --out 可能指向不存在的子目录
   writeFileSync(full, html, 'utf8');

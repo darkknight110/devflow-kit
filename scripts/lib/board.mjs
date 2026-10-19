@@ -609,6 +609,11 @@ document.getElementById('wsInput').addEventListener('keydown', (e) => {
 
 // 实时刷新：EventSource（SSE）。断线自动重连由浏览器负责。
 let es = null;
+// 卸载标记：导航/关闭不该被当成"数据流失败"
+let UNLOADING = false;
+window.addEventListener('pagehide', () => { UNLOADING = true; });
+window.addEventListener('beforeunload', () => { UNLOADING = true; });
+
 function startStream(){
   if (es) { try { es.close(); } catch {} }
   es = new EventSource(withRoot('/api/stream'));
@@ -616,6 +621,9 @@ function startStream(){
   es.onopen = () => { document.getElementById('live').className='dot-live';
     document.getElementById('liveTxt').textContent='实时'; report('open'); };
   es.onerror = () => {
+    // 页面正在卸载（例如用户点了「文档视图」跳走）会把 EventSource 拆掉，
+    // 这也会触发 onerror —— 那是**导航**，不是数据流故障，报 error 会让宿主误判 blocked。
+    if (UNLOADING) return;
     document.getElementById('live').className='dot-live off';
     document.getElementById('liveTxt').textContent='已断开，重连中…';
     report('error');
@@ -796,12 +804,18 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
           res.end('视图暂不可用（服务未提供渲染器）');
           return;
         }
+        // 告诉宿主：这是**静态文档视图**，本来就不需要 SSE。
+        // 少了这条，面板会把之前在看板上判定的 blocked 状态一直挂在文档视图上方（实测踩到）。
+        const tellStatic = '<script>try{window.parent.postMessage('
+          + '{source:"devflow-board",status:"static"},"*")}catch(e){}</script>';
         // 注入回链：/view 是通过服务打开的，给用户一条回到实时看板的路
         const back = '<a href="/" style="position:fixed;right:18px;bottom:18px;z-index:999;'
           + 'background:#1d4ed8;color:#fff;padding:9px 15px;border-radius:999px;text-decoration:none;'
           + 'font:13px/1 -apple-system,BlinkMacSystemFont,\'PingFang SC\',sans-serif;'
           + 'box-shadow:0 6px 18px rgba(29,78,216,.35)">← 返回看板</a>';
-        const outHtml = html.includes('</body>') ? html.replace('</body>', back + '</body>') : html + back;
+        const outHtml = html.includes('</body>')
+          ? html.replace('</body>', tellStatic + back + '</body>')
+          : html + tellStatic + back;
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
         res.end(outHtml);
       } catch (e) {

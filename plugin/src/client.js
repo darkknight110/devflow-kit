@@ -34,6 +34,9 @@ const TAB_ID = 'devflow/board';
 function BoardFrame() {
   // loading | ok | unreachable（服务没起来） | blocked（服务在跑，但数据流被浏览器拦掉）
   const [state, setState] = React.useState('loading');
+  // 重试用：换 key 让 iframe 重新加载，同时重跑可达性探测
+  const [nonce, setNonce] = React.useState(0);
+  const recheck = () => { setState('loading'); setNonce((n) => n + 1); };
 
   // ① 服务可达性：服务没起来时 fetch 直接 reject；起来了就 resolve。
   //    ⚠️ 这里**必须**用 mode:'no-cors'：本组件跑在 DSH 的源里，与看板不同源，
@@ -46,15 +49,19 @@ function BoardFrame() {
       .then(() => { if (alive) setState((s) => (s === 'blocked' ? s : 'ok')); })
       .catch(() => { if (alive) setState('unreachable'); });
     return () => { alive = false; };
-  }, []);
+  }, [nonce]);
 
-  // ② 数据流状态：**本组件看不见** iframe 里发生的事（跨源），只能由看板页自己 postMessage 报回来。
-  //    少了这条通道，"服务在跑但流被拦掉"就是一片**没有任何提示**的空白（实测踩到）。
+  // ② 数据流状态：**本组件看不见** iframe 里发生的事（跨源），只能由页面自己 postMessage 报回来。
+  //    少这条通道，"服务在跑但流被拦掉"就是一片**没有任何提示**的空白（实测踩到）。
+  //
+  //    'static' 是**文档视图**（/view）报的：它是纯静态页，本来就不需要 SSE。
+  //    少了这个分支，用户从看板点进文档视图后，之前的 blocked 提示会**永远挂在文档视图上方**
+  //    ——因为 /view 不发 'open' 也没有 SSE，状态没有机会恢复（实测踩到）。
   React.useEffect(() => {
     const onMsg = (e) => {
       const d = e.data;
       if (!d || d.source !== 'devflow-board') return;
-      if (d.status === 'open') setState('ok');
+      if (d.status === 'open' || d.status === 'static') setState('ok');
       else if (d.status === 'error') setState((s) => (s === 'unreachable' ? s : 'blocked'));
     };
     window.addEventListener('message', onMsg);
@@ -89,12 +96,21 @@ function BoardFrame() {
       h('div', { style: { opacity: 0.72, fontSize: '11.5px', marginTop: '6px' } },
         '通常是内嵌 iframe 的 sandbox 少了 allow-same-origin —— 那样看板文档的源是 opaque 的 null，'
         + '跨源请求拿不到 Access-Control-Allow-Origin。见 plugin/README.md「踩过的坑之四」。'),
+      h('button', {
+        onClick: recheck,
+        style: {
+          marginTop: '10px', padding: '5px 12px', fontSize: '12px', cursor: 'pointer',
+          borderRadius: '6px', border: '1px solid rgba(128,128,128,.45)',
+          background: 'rgba(128,128,128,.14)', color: 'inherit',
+        },
+      }, '重新检查'),
     ) : null,
   );
 
   return h('div', { style: { width: '100%', height: '100%', display: 'flex', flexDirection: 'column' } },
     state === 'unreachable' || state === 'blocked' ? hint : null,
     h('iframe', {
+      key: nonce,                          // 换 key ⇒ 强制重新加载，配合"重新检查"
       src: BOARD_URL,
       title: 'devflow 看板',
       style: { flex: '1 1 auto', width: '100%', border: '0', background: '#0b1120' },

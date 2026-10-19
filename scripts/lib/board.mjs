@@ -22,6 +22,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { itemsDir, localItemsDir, machineDir, readStatus, rawState, withTaskKinds } from './state.mjs';
 import { humanEvent } from './humanize.mjs'
+import { parseAcceptanceCriteria } from './checks.mjs'
 import { isRealValue, parseApprovals } from './checks.mjs';
 
 // ── 数据收集 ───────────────────────────────────────────────
@@ -69,10 +70,52 @@ function parseTasks(itemDir) {
 function collectChange(projectRoot, itemId) {
   const dir = machineDir(projectRoot, itemId) || path.join(itemsDir(projectRoot), itemId);
   const status = readStatus(dir) || {};
+
+  // 需求标题：优先 STATUS.title；老数据没有它 ⇒ 从产物文档的 H1 兜底（`# 实现报告 · <标题>`）。
+  // 为什么需要：任务表里只有 "AC-1" 这种标识，人看不出它服务于哪个需求。
+  // 产物文件可能在两个位置：`.devflow/.local/items/`（机器状态）或 `.devflow/items/`（人写的产物）。
+  // 与 parseTasks 保持**同一口径**读取，否则会出现"任务表读到了、SPEC 读不到"的错配（实测踩到）。
+  const readItemFile = (file) => {
+    const cands = [path.join(dir, file)];
+    const m = /^(.*)\/\.devflow\/\.local\/items\/([^/]+)$/.exec(dir);
+    if (m) cands.push(path.join(m[1], '.devflow', 'items', m[2], file));
+    for (const cand of cands) {
+      try { return readFileSync(cand, 'utf8'); } catch { /* 试下一个 */ }
+    }
+    return null;
+  };
+
+  const docTitle = () => {
+    for (const f of ['SPEC.md', 'coding_report.md', 'verification.md', 'TASKS.md']) {
+      try {
+        const text = readItemFile(f);
+        if (!text) continue;
+        const first = text.split('\n')[0];
+        const m = first.match(/^#\s+[^·]*·\s*(.+)$/);
+        if (m) return m[1].trim();
+      } catch { /* 无此文件（micro 档没有文档） */ }
+    }
+    return null;
+  };
+  const title = status.title || docTitle() || itemId;
+
+  // 验收判据：把 "AC-1" 这种标识解析成**判据原文**，任务才知道自己为哪条标准服务
+  let criteria = [];
+  try {
+    const specText = readItemFile('SPEC.md');
+    if (specText) criteria = parseAcceptanceCriteria(specText);
+  } catch { /* micro 档没有 SPEC */ }
+  const critById = new Map(criteria.map((c) => [String(c.id).trim(), c]));
+  const acText = (raw) => String(raw || '')
+    .split(/[、,，/／\s]+/).filter(Boolean)
+    .map((id) => (critById.get(id) ? `${id}：${critById.get(id).judgement}` : null))
+    .filter(Boolean).join('；');
   // 任务显示态：**与静态视图共用同一个函数**（state.mjs 的 withTaskKinds）。
   // 此前两处各写一份推断逻辑，导致同一变更在看板显示 3/3 已完成、在视图显示 0/3（实测）。
   // 推断只作用于展示，不改写 TASKS.md；显式写了状态就以显式值为准。
-  const tasks = withTaskKinds(parseTasks(dir), status.state);
+  // acText：把 "AC-1" 解析成判据原文 —— 任务要知道自己为哪条标准服务
+  const tasks = withTaskKinds(parseTasks(dir), status.state)
+    .map((t) => ({ ...t, acText: acText(t.ac) }));
   const history = (status.history || []).map((e) => ({
     at: e.at, event: e.event || (e.from ? 'state' : 'other'),
     task: e.task || null, changes: e.changes || null,
@@ -113,6 +156,8 @@ function collectChange(projectRoot, itemId) {
     approvalsTotal: required.length,
     createdAt: status.createdAt || null, updatedAt: status.updatedAt || null,
     tasks, history,
+    title,
+    criteria,
     counts: {
       total: tasks.length,
       todo: tasks.filter((t) => t.kind === 'todo').length,
@@ -499,14 +544,14 @@ function openTask(itemId, taskId){
   const ev = c.history.filter((e) => e.task === taskId);
   document.getElementById('panelBody').innerHTML =
     '<h2>'+esc(t.t)+' <span class="tag" style="background:'+(LAYER_COLOR[t.layer]||'#475569')+'">'+esc(t.layer||'-')+'</span></h2>'
-    + '<div class="muted">'+esc(c.itemId)+'</div>'
+    + '<div class="muted">需求：'+esc(c.title || c.itemId)+'</div>'
     + '<dl class="kv">'
     + '<dt>状态</dt><dd>'+esc(t.status)+'</dd>'
     + '<dt>负责人</dt><dd>'+esc(t.owner||'未指派')+'</dd>'
     + '<dt>目标仓</dt><dd>'+esc(t.repo)+'</dd>'
     + '<dt>写入范围</dt><dd><code>'+esc(t.range)+'</code></dd>'
     + '<dt>依赖</dt><dd>'+esc(t.dep||'无')+'</dd>'
-    + '<dt>对应 AC</dt><dd>'+esc(t.ac)+'</dd>'
+    + '<dt>对应判据</dt><dd>'+esc(t.acText || t.ac || '（未标注）')+'</dd>'
     + '<dt>验收命令</dt><dd><code>'+esc(t.cmd)+'</code></dd>'
     + '</dl><h2 style="margin-top:14px">前世今生（'+ev.length+' 条事件）</h2>' + timeline(ev);
   document.getElementById('panel').classList.add('open');

@@ -1954,7 +1954,10 @@ function cmdHistory(flags, positional) {
 }
 
 function cmdGraph(flags) {
-  const { root } = resolveProject(flags);
+  // 必须用 workspace 感知的解析器：否则在**工作区根目录**跑 graph 会报
+  // "需要 devflow.json"（工作区只有 devflow.workspace.json），而看板却认得它 ——
+  // 同一份配置，两个命令两种答案，这是最容易让人不信任工具的那类不一致。
+  const { root } = resolveProjectOrWorkspace(flags);
   const kind = flags.kind ? String(flags.kind) : 'tasks';
   const items = graphData(root);
   const want = (k) => kind === 'all' || kind === k;

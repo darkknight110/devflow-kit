@@ -290,6 +290,9 @@ export function createItem({ projectRoot, itemId, tier, owner, repos, changeSurf
   writeStatus(machine, {
     item: itemId,
     state: 'draft',
+    // 需求标题必须落盘：否则看板/事件里只能显示目录名（slug），
+    // 人看不出这条任务来自哪个需求（实测反馈）。
+    title: title || null,
     tier,
     kitVersion: kitVersion(),
     createdAt: new Date().toISOString(),

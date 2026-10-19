@@ -16,7 +16,7 @@ import { evaluateGates, summarize } from './lib/gate.mjs';
 import { runProjectGates } from './lib/evidence.mjs';
 import { rawState } from './lib/state.mjs';
 import { diagnose, mergeStandardBlockers } from './lib/doctor.mjs';
-import { collectBoardState } from './lib/board.mjs';
+import { collectBoardState, renderBoardHtml } from './lib/board.mjs';
 import { loadAdapters, detectAdapters, applyAdapter, auditAdapterRegex } from './lib/adapter.mjs';
 import { findPlaceholderContent } from './lib/gate.mjs';
 import { detectEnvFailure } from './lib/doctor.mjs';
@@ -1770,6 +1770,52 @@ function sc68() {
  *（实测踩到：文档写 69，而它在第 68 位只能看到 68 ⇒ 恒红，且看起来像文档写错）。
  * 排最后 ⇒ 数完除自己以外的全部，再加回自己，结果与顺序无关。
  */
+/**
+ * SC70：看板与文档视图的**内联脚本必须语法合法**。
+ *
+ * 依据（实测踩到）：SC60 只检查"钩子存在"，于是 board.mjs 里多出的一个 `}`
+ * 让整段客户端 JS 不执行 —— 看板首页一直是空白，而自检全绿。
+ * 空白看板比缺功能更严重：用户会以为工具坏了，且完全没有报错线索。
+ *
+ * 做法：把产物里的每段 <script> 交给 `new Function()` **只解析、不执行**；
+ * 并做负向对照（注入一处语法错误，必须被判为不合法），避免断言写成恒真。
+ */
+function sc70() {
+  const cli = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  const extract = (html) => [...String(html).matchAll(/<script[^>]*>([\s\S]*?)<\/script>/g)]
+    .map((m) => m[1]).filter((s) => s.trim());
+  const parses = (code) => { try { new Function(code); return true; } catch { return false; } };
+
+  // ① 看板模板（不需要项目）
+  let boardHtml = '';
+  try { boardHtml = renderBoardHtml('selfcheck'); } catch { boardHtml = ''; }
+  const bScripts = extract(boardHtml);
+  const boardOk = bScripts.length > 0 && bScripts.every(parses);
+
+  // ② 静态视图：临时项目里跑一次真实的 view 命令
+  const root = tmpProject('scripts');
+  write(root, 'package.json', '{"name":"s"}\n', 0o644);
+  // 必须是**合法项目**（有 devflow.json），否则 view 会拒绝执行 —— 用 init 建好再跑
+  spawnSync(process.execPath, [cli, 'init', '--name', 's'],
+    { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  const outFile = path.join(root, 'v.html');
+  spawnSync(process.execPath, [cli, 'view', '--out', outFile],
+    { cwd: root, encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  let viewHtml = '';
+  try { viewHtml = readFileSync(outFile, 'utf8'); } catch { viewHtml = ''; }
+  const vScripts = extract(viewHtml);
+  const viewOk = vScripts.length > 0 && vScripts.every(parses);
+
+  // ③ 负向对照：多一个 } 必须被判为不合法
+  const guard = !parses('(function(){ if (1) { } }); }');
+
+  record('SC70', '看板与视图的内联脚本语法合法（防整页空白）',
+    '看板模板与 view 产物里的每段 <script> 都能被解析；注入语法错误必须被判失败',
+    `看板脚本=${bScripts.length} 合法=${boardOk} 视图脚本=${vScripts.length} 合法=${viewOk} 防错有效=${guard}`,
+    boardOk && viewOk && guard);
+  rmSync(root, { recursive: true, force: true });
+}
+
 function sc69() {
   const others = [...new Set(cases.map((c) => c.id))].filter((id) => /^SC\d+$/.test(id) && id !== 'SC69').length;
   const actual = others + 1;
@@ -2503,6 +2549,7 @@ function sc66() {
   sc66();
   sc67();
   sc68();
+  sc70();
   sc69();
   return {
     kitRoot: KIT_ROOT,

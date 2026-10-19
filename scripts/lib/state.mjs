@@ -362,3 +362,40 @@ export function archive({ projectRoot, kitSpec, artifactsSpec, dryRun = true }) 
   }
   return { moves, rules, dryRun };
 }
+
+/**
+ * 任务「显示态」的唯一口径 —— 两个视图必须用同一个函数算，否则同一份数据会给出两种结论。
+ *
+ * 背景（真实踩到）：看板对「待开始/空」的任务按**变更状态**推断显示态，
+ * 而静态视图只读 TASKS.md 原文 ⇒ 同一个已发布变更，看板说 3/3 已完成、视图说 0/3。
+ * 用户看到两个数不一致，会开始怀疑所有数字。
+ *
+ * 规则（沿用看板既有语义，不改写 TASKS.md）：
+ *   · 显式写了状态 ⇒ 以显式值为准；
+ *   · 未写或仍是「待开始」⇒ 按变更状态推断，并标记 derived=true，供界面对用户标注「推断」。
+ */
+export const TASK_KIND_BY_STATE = (st) => (/^(tested|verified|released)$/.test(String(st || ''))
+  ? 'done' : String(st) === 'implementing' ? 'doing' : 'todo');
+
+/** TASKS.md 里的状态文本 → 显示态 */
+export function taskKindOf(statusText) {
+  const s = String(statusText || '');
+  if (/已完成/.test(s)) return 'done';
+  if (/阻塞/.test(s)) return 'blocked';
+  if (/进行中/.test(s)) return 'doing';
+  return 'todo';
+}
+
+/** 给任务补上 kind/derived（纯展示，不落盘） */
+export function withTaskKinds(tasks, state) {
+  return (tasks || []).map((t) => {
+    const raw = String(t.status || '').trim();
+    const unset = !raw || /待开始/.test(raw);
+    return unset
+      ? { ...t, kind: TASK_KIND_BY_STATE(state), derived: true }
+      : { ...t, kind: taskKindOf(raw), derived: false };
+  });
+}
+
+/** 显示态 → 中文（界面标注用） */
+export const TASK_KIND_NAME = { todo: '待开始', doing: '进行中', done: '已完成', blocked: '阻塞' };

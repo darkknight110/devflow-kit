@@ -36,7 +36,7 @@ import {
   gitFacts,
   instructionChainKb,
 } from './lib/manifest.mjs';
-import { createItem, evaluateItem, itemsDir, localItemsDir, machineDir, allItemIds, listItems, recordRun, advance, archive, readStatus, rawState, appendEvent, readEvents } from './lib/state.mjs';
+import { createItem, evaluateItem, itemsDir, localItemsDir, machineDir, allItemIds, listItems, recordRun, advance, archive, readStatus, rawState, appendEvent, readEvents, withTaskKinds, TASK_KIND_NAME } from './lib/state.mjs';
 import { renderTerminal, dispW, padW } from './lib/docview.mjs';
 import { humanEvent } from './lib/humanize.mjs';
 import { evaluateGates, summarize, resolveArtifactIn } from './lib/gate.mjs';
@@ -1064,10 +1064,13 @@ function collectChange(projectRoot, itemId) {
   const dir = machineDir(projectRoot, itemId) || path.join(itemsDir(projectRoot), itemId);
   const state = rawState(dir) || '?';
   const status = readStatus(dir) || {};
-  const tasks = parseTasks(dir);
-  const done = tasks.filter((t) => /已完成/.test(t.status)).length;
-  const blocked = tasks.filter((t) => /阻塞/.test(t.status)).length;
-  const running = tasks.filter((t) => /进行中/.test(t.status)).length;
+  // 显示态与看板共用同一个函数（state.mjs 的 withTaskKinds）——
+  // 此前视图只读原文、看板按变更状态推断，同一个变更两边差 3 个已完成（实测）。
+  const tasks = withTaskKinds(parseTasks(dir), state);
+  const done = tasks.filter((t) => t.kind === 'done').length;
+  const blocked = tasks.filter((t) => t.kind === 'blocked').length;
+  const running = tasks.filter((t) => t.kind === 'doing').length;
+  const derivedCount = tasks.filter((t) => t.derived).length;
   // AC 原文：任务表只有 AC 编号，点开要知道**判据到底是什么**
   const acMap = {};
   try {
@@ -1118,10 +1121,10 @@ function collectChange(projectRoot, itemId) {
   //   任务只存在于「实现中 → 已验证」这段 —— 之前的阶段是需求与切分（那时任务表还没有），
   //   「已发布」在全部任务之后。因此按任务状态把它们挂到相关阶段上。
   const byStatus = {
-    todo: tasks.filter((t) => /待开始/.test(t.status)),
-    running: tasks.filter((t) => /进行中/.test(t.status)),
-    done: tasks.filter((t) => /已完成/.test(t.status)),
-    blocked: tasks.filter((t) => /阻塞/.test(t.status)),
+    todo: tasks.filter((t) => t.kind === 'todo'),
+    running: tasks.filter((t) => t.kind === 'doing'),
+    done: tasks.filter((t) => t.kind === 'done'),
+    blocked: tasks.filter((t) => t.kind === 'blocked'),
   };
   const stageTasks = {
     implementing: [...byStatus.running, ...byStatus.todo, ...byStatus.blocked],
@@ -1172,7 +1175,7 @@ function collectChange(projectRoot, itemId) {
   const layers = [...new Set(tasks.map((t) => t.layer).filter(Boolean))];
   const needLayers = [...new Set(surface.flatMap((x) => SURFACE_LAYER[x] || []))];
   const missingLayers = needLayers.filter((ly) => !layers.includes(ly));
-  return { itemId, state, tier: status.tier || '?', tasks, done, blocked, running,
+  return { itemId, state, tier: status.tier || '?', tasks, done, blocked, running, derivedCount,
     taskTotal: tasks.length, acMap, blockersOf, stateInfo, byStatus, stageTasks, docs, arch,
     clarify, layers, needLayers, missingLayers, surface,
     curIdx: stateOrder.indexOf(state) };
@@ -2003,14 +2006,24 @@ function cmdView(flags, opts = {}) {
       return { ...extra, ...c };
     })
     : listItems(root).map((i) => collectChange(root, i.itemId));
+  // 工作区根（有 devflow.workspace.json 但没有 devflow.json）不是项目：
+  // 按项目口径跑体检必然报「门禁不可信 · 阻断 1」，是**误报**。
+  // 不隐藏事实，而是换成一句如实的说明（见下方卡片）。
+  const isWorkspaceRoot = existsSync(path.join(root, 'devflow.workspace.json'))
+    && !existsSync(path.join(root, 'devflow.json'));
   let verdict = null;
-  try {
-    verdict = diagnose({ projectRoot: root, config: loaded.config, marker,
-      cwd: process.cwd(), kitVersion: kitVersion(), kitRoot: KIT_ROOT }).verdict;
-  } catch { /* 体检失败不阻塞视图 */ }
+  if (!isWorkspaceRoot) {
+    try {
+      verdict = diagnose({ projectRoot: root, config: loaded.config, marker,
+        cwd: process.cwd(), kitVersion: kitVersion(), kitRoot: KIT_ROOT }).verdict;
+    } catch { /* 体检失败不阻塞视图 */ }
+  }
 
   const esc = (x) => String(x == null ? '' : x).replace(/[&<>"]/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
   const statusColor = (st) => (/已完成/.test(st) ? '#0a7d33' : /阻塞/.test(st) ? '#c0392b' : /进行中/.test(st) ? '#b7791f' : '#6b7280');
+  // 显示态靠 kind（含"按变更状态推断"的），不要再用状态文本猜颜色 —— 推断出来的任务
+  // 文本是空/待开始，按文本猜会一律画成灰色，与统计数字自相矛盾。
+  const KIND_COLOR = { done: '#0a7d33', blocked: '#c0392b', doing: '#b7791f', todo: '#6b7280' };
   const layerColor = (ly) => ({ 前端: '#2563eb', 后端: '#7c3aed', 数据库: '#0891b2', 契约: '#c2410c', 文档: '#4b5563' }[ly] || '#6b7280');
 
   // ── 阶段文档的锚点与目录 ─────────────────────────────────────────
@@ -2081,8 +2094,7 @@ function cmdView(flags, opts = {}) {
       const taskHtml = rel
         ? (rel.length
           ? `<p class="small muted">相关任务（${rel.length}）：</p><ul class="reqs">${rel.map((t) => {
-            const col = /已完成/.test(t.status) ? '#0a7d33' : /阻塞/.test(t.status) ? '#c0392b' : /进行中/.test(t.status) ? '#b7791f' : '#6b7280';
-            return `<li><span class="dot" style="background:${col}"></span><span class="mono">${esc(t.t)}</span> ${esc(t.layer || '')} ${esc(t.owner || '')} · ${esc(t.status)}</li>`;
+            return `<li><span class="dot" style="background:${KIND_COLOR[t.kind] || '#6b7280'}"></span><span class="mono">${esc(t.t)}</span> ${esc(t.layer || '')} ${esc(t.owner || '')} · ${esc(t.status || TASK_KIND_NAME[t.kind] || '未标注')}${t.derived ? '<span class="inferred">推断</span>' : ''}</li>`;
           }).join('')}</ul>`
           : '<p class="small muted">本阶段暂无相关任务</p>')
         : '<p class="small muted">本阶段不涉及任务（需求/切分或发布收尾）</p>';
@@ -2121,7 +2133,7 @@ function cmdView(flags, opts = {}) {
         <span class="mono tid">${esc(t.t)}</span>
         <span class="tag" style="background:${layerColor(t.layer)}">${esc(t.layer || '—')}</span>
         <span class="sum-repo">${esc(t.repo)}</span>
-        <span class="sum-status"><span class="dot" style="background:${statusColor(t.status)}"></span>${esc(t.status || '未标注')}</span>
+        <span class="sum-status"><span class="dot" style="background:${KIND_COLOR[t.kind] || '#6b7280'}"></span>${esc(t.status || '未标注')}${t.derived ? `<span class="inferred">推断：${esc(TASK_KIND_NAME[t.kind] || '')}</span>` : ''}</span>
         <span class="sum-owner">${esc(t.owner || '(未指派)')}</span>
         <span class="caret">点击展开</span>
       </summary>
@@ -2196,7 +2208,7 @@ function cmdView(flags, opts = {}) {
     <div class="flow">${flow}</div>
     ${docCenter}
     <div class="progress"><div class="bar" style="width:${pct}%"></div></div>
-    <div class="muted">任务进度：${c.done}/${c.taskTotal} 已完成（进行中 ${c.running}，阻塞 ${c.blocked}）</div>
+    <div class="muted">任务进度：${c.done}/${c.taskTotal} 已完成（进行中 ${c.running}，阻塞 ${c.blocked}）${c.derivedCount ? `<span class="inferred">其中 ${c.derivedCount} 个未标注状态，按变更状态推断</span>` : ''}</div>
     ${c.taskTotal ? (() => {
       // 依赖关系用原生 HTML 表达（不再依赖 Mermaid CDN）——离线也能正确显示，
       // 且每个依赖都是可点的锚点，直接跳到目标任务。
@@ -2350,6 +2362,7 @@ function cmdView(flags, opts = {}) {
   .sfitem:hover{color:#1d4ed8}
   ul.deplist{list-style:none;margin:6px 0 0;padding:0;font-size:12px}
   ul.deplist li{padding:2px 0}
+  .inferred{color:#b7791f;font-size:11px;border:1px dashed #f0d6a8;border-radius:4px;padding:0 5px;margin-left:6px}
   /* ── 文档正文：渲染后的 Markdown（默认视图） ────────────── */
   .docbody.md{background:#fff;border:1px solid var(--bd);border-radius:8px;padding:14px 16px;margin:6px 0 10px;
     max-height:560px;overflow:auto;line-height:1.7;font-size:13.5px;color:#1f2937}
@@ -2383,7 +2396,9 @@ function cmdView(flags, opts = {}) {
 </style></head><body>
 <h1>devflow 视图 · ${esc(loaded.config?.devflow?.project || path.basename(root))}</h1>
 <div class="sub">${esc(root)}　·　生成于 ${esc(localTime(new Date().toISOString()))}</div>
-${verdict ? `<section class="card"><h2>门禁可信度</h2><span class="badge ${verdict.trustworthy ? (verdict.counts?.weak ? 'warn' : 'ok') : 'bad'}">${esc(verdict.summary)}</span><div class="muted" style="margin-top:8px">阻断 ${verdict.counts?.block ?? 0} · 削弱 ${verdict.counts?.weak ?? 0} · 提示 ${verdict.counts?.info ?? 0}</div></section>` : ''}
+${isWorkspaceRoot
+  ? `<section class="card"><h2>门禁可信度</h2><span class="badge warn">工作区视图 · 不适用</span><div class="muted" style="margin-top:8px">这里是工作区根（只有 devflow.workspace.json，没有 devflow.json），项目级门禁体检不适用于此。要看某个仓的门禁结论，请生成该仓的视图（或在看板左上角切换工作区）。</div></section>`
+  : (verdict ? `<section class="card"><h2>门禁可信度</h2><span class="badge ${verdict.trustworthy ? (verdict.counts?.weak ? 'warn' : 'ok') : 'bad'}">${esc(verdict.summary)}</span><div class="muted" style="margin-top:8px">阻断 ${verdict.counts?.block ?? 0} · 削弱 ${verdict.counts?.weak ?? 0} · 提示 ${verdict.counts?.info ?? 0}</div></section>` : '')}
 ${items.length ? `<section class="card"><h2>需求流转总览</h2>
   <div class="stageflow">${STATE_FLOW.map((k, i) => {
     const list = items.filter((c) => (STATE_FLOW.includes(c.state) ? c.state : 'draft') === k);

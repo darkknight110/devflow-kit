@@ -1860,7 +1860,7 @@ function cmdBoard(flags) {
     port,
     intervalMs,
     // /view 复用 devflow view 的渲染结果：一个地址就能看全部阶段文档
-    viewHtml: () => (root ? cmdView({ root }, { returnHtml: true }) : null),
+    viewHtml: (r) => ((r || root) ? cmdView({ root: r || root }, { returnHtml: true }) : null),
     onReady: (addr) => {
       process.stdout.write([
         '',

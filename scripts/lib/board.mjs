@@ -391,7 +391,7 @@ export function renderBoardHtml(projectName) {
 <header>
   <h1>devflow 看板</h1>
   <span class="muted" style="font-size:12px">${projectName}</span>
-  <a class="navview" href="/view" target="_blank" rel="noopener"
+  <a class="navview" href="/view"
      title="打开完整文档视图（所有变更 × 所有阶段文档）">📄 文档视图</a>
   <div class="live"><span id="live" class="dot-live"></span><span id="liveTxt">连接中…</span></div>
   <div class="ws">
@@ -569,7 +569,13 @@ function applyRoot(next){
   ROOT = next || '';
   if (ROOT) localStorage.setItem('devflow.root', ROOT); else localStorage.removeItem('devflow.root');
   document.getElementById('wsInput').value = ROOT;
+  syncViewLink();
   startStream();                      // 换根 ⇒ 重建订阅
+}
+/** 文档视图入口跟随当前工作区：切了仓，"文档视图"按钮也指向同一个仓 */
+function syncViewLink(){
+  const a = document.querySelector('a.navview');
+  if (a) a.href = '/view' + (ROOT ? '?root=' + encodeURIComponent(ROOT) : '');
 }
 document.getElementById('wsApply').onclick = () => applyRoot(document.getElementById('wsInput').value.trim());
 document.getElementById('wsReset').onclick = () => applyRoot('');
@@ -590,6 +596,7 @@ function startStream(){
 }
 document.getElementById('wsInput').value = ROOT;
 loadRoots();
+syncViewLink();
 startStream();
 </script>
 </body></html>`;
@@ -738,14 +745,23 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
     // （静态文件仍可单独生成/转发，二者是同一份数据的两种取用方式）
     if (url.pathname === '/view' || url.pathname === '/view/') {
       try {
-        const html = typeof viewHtml === 'function' ? viewHtml() : null;
+        // 跟随工作区：与 /api/state 同一套 root 解析规则，
+        // 这样看板下拉切到哪个仓，/view 就渲染哪个仓。
+        const vRoot = resolveRoot(url.searchParams.get('root'));
+        const html = typeof viewHtml === 'function' ? viewHtml(vRoot) : null;
         if (!html) {
           res.writeHead(503, { 'content-type': 'text/plain; charset=utf-8' });
           res.end('视图暂不可用（服务未提供渲染器）');
           return;
         }
+        // 注入回链：/view 是通过服务打开的，给用户一条回到实时看板的路
+        const back = '<a href="/" style="position:fixed;right:18px;bottom:18px;z-index:999;'
+          + 'background:#1d4ed8;color:#fff;padding:9px 15px;border-radius:999px;text-decoration:none;'
+          + 'font:13px/1 -apple-system,BlinkMacSystemFont,\'PingFang SC\',sans-serif;'
+          + 'box-shadow:0 6px 18px rgba(29,78,216,.35)">← 返回看板</a>';
+        const outHtml = html.includes('</body>') ? html.replace('</body>', back + '</body>') : html + back;
         res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
-        res.end(html);
+        res.end(outHtml);
       } catch (e) {
         res.writeHead(500, { 'content-type': 'text/plain; charset=utf-8' });
         res.end('视图渲染失败：' + (e && e.message ? e.message : e));

@@ -228,6 +228,33 @@ on the requested resource.
 | 1 | iframe 的 sandbox 补上 `allow-same-origin`。**安全性不变**：看板页来自 `http://127.0.0.1:<port>`，与 DSH 界面依旧是**跨源**，拿不到 DSH 的 DOM/storage；父页不同源时内嵌页也无法自行摘掉 sandbox |
 | 2 | 看板页用 `postMessage({ source:'devflow-board', status })` 把 SSE 的真实状态报给面板（`onopen`→`open`，`onerror`→`error`）；面板据此新增 `blocked` 态，明说「数据流被浏览器拦掉了」而不是继续装死 |
 
+### 追记（2026-10-19）：真正的第一现场是 `localStorage`，不是 SSE
+
+后面复现时发现因果链还差一环，而且它在**更前面**：
+
+浏览器在 sandbox 缺 `allow-same-origin` 时，连 `localStorage` 都不给：
+
+```
+Failed to read the 'localStorage' property from 'Window':
+  The document is sandboxed and lacks the 'allow-same-origin' flag.
+```
+
+而看板脚本**第一行**就是 `let ROOT = localStorage.getItem('devflow.root')` —— 这一句抛
+`SecurityError`，**整段 JS 直接不执行**：SSE 根本不会创建、`onerror` 不会绑定、
+连"已断开"都不会显示，页面永远停在静态的"连接中…"。
+
+也就是说：**只修 CORS 是没用的**，脚本在更早的地方就死了。
+
+因此看板页另加了两道兜底（与宿主修法**互相独立**，任何嵌入方都受益）：
+
+| 兜底 | 作用 |
+|---|---|
+| `SAFE_STORAGE`（localStorage 包装，失败降级为内存 Map） | 沙箱里脚本也能跑完，后续逻辑（含错误处理）得以执行 |
+| SSE 失败时的**页内红色横幅** | 直接写明"数据流没连上 + 最可能是 sandbox 缺 allow-same-origin + 两种解法 + 一条 DevTools 排查语句" |
+
+验证方式（可复现）：同一地址分别放进两种 sandbox iframe ——
+无 `allow-same-origin` 的那个现在会显示红色横幅（而不是一片空白），有它的那个正常渲染。
+
 **复发时怎么快速定位**：把同一个看板地址分别放进 sandbox iframe 和普通 iframe —— 普通 iframe 正常、sandbox 里空白，就是这条。
 `scripts/selfcheck.mjs` 的 SC60/SC61 覆盖了界面钩子与插件产物卫生，改完记得重跑。
 

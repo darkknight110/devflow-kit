@@ -289,6 +289,12 @@ export function renderBoardHtml(projectName) {
    color:var(--accent); border:1px solid rgba(90,140,255,.45); border-radius:999px; padding:4px 11px;
    background:rgba(90,140,255,.10); transition:.15s}
  .navview:hover{background:rgba(90,140,255,.22); color:#fff; border-color:var(--accent)}
+ /* 连接失败横幅：把"为什么空"与"怎么修"直接写在页面上 */
+ .connfail{margin:14px 18px 0;padding:13px 16px;border:1px solid rgba(242,85,90,.55);border-radius:10px;
+   background:rgba(242,85,90,.10);color:var(--txt);font-size:13px;line-height:1.65}
+ .connfail code{background:rgba(255,255,255,.10);border-radius:4px;padding:1px 5px;font-size:12px}
+ .connfail a{color:var(--accent)}
+ .connfail .cf-sub{margin-top:6px;font-size:12px;color:var(--txt2)}
  /* 指标卡：等宽数字 + 渐隐顶线 */
  .stats{display:grid; grid-template-columns:repeat(auto-fit,minmax(118px,1fr)); gap:12px; padding:18px 26px 6px}
  .stat{
@@ -394,6 +400,7 @@ export function renderBoardHtml(projectName) {
   <div class="live" style="margin-left:auto"><span class="muted">更新于</span> <span id="at">—</span></div>
 </header>
 <div id="needRoot" class="needroot" style="display:none"></div>
+<div id="connFail" class="connfail" style="display:none"></div>
 <div class="stats" id="stats"></div>
 <main>
   <div class="sec"><span>任务看板</span><i>按状态分栏 · 点卡片看「前世今生」</i></div>
@@ -545,7 +552,34 @@ function report(status){
   try { window.parent.postMessage({ source:'devflow-board', status:status }, '*'); } catch (e) { /* 忽略 */ }
 }
 // ── 工作区（每个请求带 root；选择记忆在 localStorage）──────────────
-let ROOT = localStorage.getItem('devflow.root') || '';
+/**
+ * localStorage 的安全包装。
+ *
+ * 为什么必须有：在**沙箱 iframe 且缺 allow-same-origin** 的宿主里（例如某些面板/预览），
+ * 访问 localStorage 会直接抛 SecurityError:
+ *   "The document is sandboxed and lacks the 'allow-same-origin' flag."
+ * 而这一行在脚本最前面 —— 抛出去会让**整段 JS 不执行**：SSE 不会建立、错误处理不会绑定，
+ * 页面永远停在"连接中…"，统计与任务卡全空，且一句提示都没有（实测踩到）。
+ *
+ * 用内存兜底后：脚本能跑完 → SSE 该失败就失败 → 页面上给出可读的原因与解法。
+ */
+const SAFE_STORAGE = (() => {
+  try {
+    const probe = '__devflow_probe__';
+    window.localStorage.setItem(probe, '1');
+    window.localStorage.removeItem(probe);
+    return window.localStorage;
+  } catch (e) {
+    const mem = new Map();
+    return {
+      getItem: (k) => (mem.has(k) ? mem.get(k) : null),
+      setItem: (k, v) => { mem.set(k, String(v)); },
+      removeItem: (k) => { mem.delete(k); },
+      __memoryOnly: true,
+    };
+  }
+})();
+let ROOT = SAFE_STORAGE.getItem('devflow.root') || '';
 const withRoot = (p) => p + (ROOT ? (p.includes('?') ? '&' : '?') + 'root=' + encodeURIComponent(ROOT) : '');
 
 async function loadRoots(){
@@ -557,7 +591,7 @@ async function loadRoots(){
 }
 function applyRoot(next){
   ROOT = next || '';
-  if (ROOT) localStorage.setItem('devflow.root', ROOT); else localStorage.removeItem('devflow.root');
+  if (ROOT) SAFE_STORAGE.setItem('devflow.root', ROOT); else SAFE_STORAGE.removeItem('devflow.root');
   document.getElementById('wsInput').value = ROOT;
   syncViewLink();
   startStream();                      // 换根 ⇒ 重建订阅
@@ -581,8 +615,26 @@ function startStream(){
   es.onmessage = (e) => { try { render(JSON.parse(e.data)); } catch {} };
   es.onopen = () => { document.getElementById('live').className='dot-live';
     document.getElementById('liveTxt').textContent='实时'; report('open'); };
-  es.onerror = () => { document.getElementById('live').className='dot-live off';
-    document.getElementById('liveTxt').textContent='已断开，重连中…'; report('error'); };
+  es.onerror = () => {
+    document.getElementById('live').className='dot-live off';
+    document.getElementById('liveTxt').textContent='已断开，重连中…';
+    report('error');
+    // 数据全部走 SSE：连不上就是整页空白。把**原因与解法**写在页面上，
+    // 否则用户只看到"连接中…"，以为服务没起来（实测踩到：CORS 被拦时毫无线索）。
+    const box = document.getElementById('connFail');
+    if (!box || box.dataset.shown) return;
+    box.dataset.shown = '1';
+    box.style.display = 'block';
+    box.innerHTML = '<b>实时数据流没有连上，所以统计与任务卡是空的。</b>'
+      + '<div class="cf-sub">最常见的原因：本页被嵌在 <code>sandbox</code> iframe 里，而 sandbox 少了 '
+      + '<code>allow-same-origin</code> —— 此时文档的源是 opaque 的 <code>null</code>，'
+      + '对本站的 SSE 请求会被浏览器按 CORS 拒绝。</div>'
+      + '<div class="cf-sub">怎么解决：① 让宿主给 iframe 加 <code>allow-same-origin</code>'
+      + '（看板与宿主本就跨源，安全性不变）；或 ② 直接在浏览器打开 '
+      + '<a href="' + location.href.replace(/[?#].*$/, '') + '" target="_blank" rel="noopener">这个地址</a>。</div>'
+      + '<div class="cf-sub">排查：在 DevTools Console 里执行 '
+      + '<code>new EventSource("' + withRoot('/api/stream') + '")</code>，'
+      + '若报 Access-Control-Allow-Origin 相关错误，即命中本条。</div>'; };
 }
 document.getElementById('wsInput').value = ROOT;
 loadRoots();

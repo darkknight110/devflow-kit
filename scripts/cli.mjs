@@ -1868,6 +1868,35 @@ function cmdBoard(flags) {
         '  要改状态？在 CLI 或聊天里操作（例如 devflow task <变更> T-2 --status 进行中）',
       ].join('\n') + '\n');
     },
+    // 端口被占用是常见情形（上一次的看板还在跑）。区分两种：
+    //   ① 已有的 devflow 看板 ⇒ 直接告诉地址，复用，不报错退出；
+    //   ② 别的程序占着 ⇒ 给出换端口的明确命令。
+    onError: async (err) => {
+      const url = `http://127.0.0.1:${port}`;
+      if (!err || err.code !== 'EADDRINUSE') {
+        die(`看板启动失败：${err && err.message ? err.message : err}`, 2);
+        return;
+      }
+      let isBoard = false;
+      try {
+        const r = await fetch(`${url}/api/state`, { signal: AbortSignal.timeout(1500) });
+        const j = await r.json();
+        isBoard = Boolean(j && typeof j === 'object' && 'servedRoot' in j);
+      } catch { /* 不是看板，或不可达 */ }
+      if (isBoard) {
+        process.stdout.write([
+          '',
+          `  ${paint('✓ 看板已在运行', 'green')}  ${paint(url, 'bold')}`,
+          '  端口上已经有一个 devflow 看板，直接用它即可（复用同一实例）。',
+          '  要重启：先停掉旧进程，或换端口 → devflow board --port ' + (port + 1),
+          '',
+        ].join('\n') + '\n');
+        process.exit(0);
+      }
+      die(`端口 ${port} 已被其他程序占用（不是 devflow 看板）。\n`
+        + `  换一个端口：devflow board --port ${port + 1}\n`
+        + `  查看占用者：lsof -nP -iTCP:${port} -sTCP:LISTEN`, 2);
+    },
   });
   // 前台常驻，直到 Ctrl-C
 }
@@ -1965,6 +1994,47 @@ function cmdView(flags) {
   const statusColor = (st) => (/已完成/.test(st) ? '#0a7d33' : /阻塞/.test(st) ? '#c0392b' : /进行中/.test(st) ? '#b7791f' : '#6b7280');
   const layerColor = (ly) => ({ 前端: '#2563eb', 后端: '#7c3aed', 数据库: '#0891b2', 契约: '#c2410c', 文档: '#4b5563' }[ly] || '#6b7280');
 
+  // ── 阶段文档的锚点与目录 ─────────────────────────────────────────
+  // 目标：**每个阶段的每个文档都能被点击查看，且能被深链**（#doc-<变更>-<文档>）。
+  // 之前只有"当前阶段要求且已存在"的产物才可展开，用户想读某个文档得先猜它在哪个阶段里。
+  const slugOf = (s) => String(s == null ? '' : s).replace(/[^A-Za-z0-9_-]+/g, '-')
+    .replace(/^-+|-+$/g, '') || 'x';
+  const docAnchor = (itemId, file) => `doc-${slugOf(itemId)}-${slugOf(file)}`;
+  const DOC_LABEL = {
+    'SPEC.md': '需求与验收标准',
+    'CLARIFY.md': '需求澄清答复',
+    'CONTRACT.md': '契约与破坏性判定',
+    'TASKS.md': '任务分解',
+    'coding_report.md': '实现报告',
+    'verification.md': '验证记录',
+    'APPROVALS.md': '人工确认记录',
+    'release/report.md': '发布报告',
+  };
+  const docLabelOf = (f) => DOC_LABEL[f] || f;
+  // 目录来源：先按**阶段顺序**取该阶段声明的产物（保证语义顺序），
+  // 再补上磁盘上确实存在、但没被任何阶段声明的文件（不丢信息）。
+  const docCatalog = (c) => {
+    const seen = new Set(); const list = [];
+    for (const st of (c.stateInfo || [])) {
+      for (const r of (st.reqs || [])) {
+        if (seen.has(r.file)) continue;
+        seen.add(r.file);
+        list.push({ file: r.file, stage: st.name, ok: r.ok, stageKey: st.key });
+      }
+    }
+    for (const f of Object.keys(c.docs || {})) {
+      if (seen.has(f)) continue;
+      seen.add(f);
+      list.push({ file: f, stage: null, ok: true, stageKey: null });
+    }
+    return list;
+  };
+  // 缺失产物的"下一步"提示：不要只说缺失，要告诉人怎么补
+  const fillHint = (c, stageKey) => {
+    if (!stageKey) return '';
+    return `<code class="mono">devflow fill ${esc(c.itemId)} --to ${esc(stageKey)}</code>`;
+  };
+
   const STATE_FLOW = ['draft', 'spec_ready', 'contracted', 'implementing', 'tested', 'verified', 'released'];
   const STATE_NAME = { draft: '草稿', spec_ready: '需求就绪', contracted: '契约冻结', implementing: '实现中', tested: '待验证', verified: '已验证', released: '已发布' };
 
@@ -1975,14 +2045,13 @@ function cmdView(flags) {
       const cls = st.pos < c.curIdx ? 'done' : st.pos === c.curIdx ? 'now' : 'todo';
       const reqHtml = st.reqs.length
         ? `<ul class="reqs">${st.reqs.map((r) => {
-          const body = c.docs[r.file];
-          if (r.ok && body) {
-            // 已存在 ⇒ 点开看全文（<details> 嵌套，零 JS）
-            return `<li class="ok"><details class="doc"><summary>✓ <span class="mono">${esc(r.file)}</span> <span class="copy">查看全文</span></summary>`
-              + `<pre class="docbody">${esc(body)}</pre></details></li>`;
-          }
-          return `<li class="${r.ok ? 'ok' : 'no'}">${svg[r.ok ? 'ok' : 'no']} <span class="mono">${esc(r.file)}</span>`
-            + `${r.ok ? '' : '<span class="small">（缺失）</span>'}</li>`;
+          const ok = Boolean(c.docs[r.file]);
+          // 已存在 ⇒ 跳到本变更的「阶段文档」区并自动展开（页尾脚本负责展开与高亮）
+          return `<li class="${ok ? 'ok' : 'no'}">${ok ? '✓' : '✗'} `
+            + `<a class="doclink" href="#${docAnchor(c.itemId, r.file)}"><span class="mono">${esc(r.file)}</span></a>`
+            + ` <span class="small">${esc(docLabelOf(r.file))}</span>`
+            + (ok ? '' : ` <span class="small">（缺失 · 可用 ${fillHint(c, st.key)} 生成）</span>`)
+            + '</li>';
         }).join('')}</ul>`
         : '<p class="muted small">本阶段无额外产物要求</p>';
       const reachNote = st.pos < c.curIdx ? '已通过'
@@ -2028,7 +2097,7 @@ function cmdView(flags) {
         if (/已完成/.test(t.status)) return ['tested', 'verified'];
         return ['implementing'];
       };
-      return `<details class="task" data-task="${esc(t.t)}" data-stages="${stageOf(t).join(',')}">
+      return `<details class="task" id="task-${slugOf(c.itemId)}-${slugOf(t.t)}" data-task="${esc(t.t)}" data-stages="${stageOf(t).join(',')}">
       <summary>
         <span class="mono tid">${esc(t.t)}</span>
         <span class="tag" style="background:${layerColor(t.layer)}">${esc(t.layer || '—')}</span>
@@ -2060,15 +2129,76 @@ function cmdView(flags) {
         ? `<span class="alert bad">任务缺责任层：${esc(c.missingLayers.join('、'))}</span>`
         : `<span class="alert ok">责任层已覆盖：${esc(c.layers.join('、'))}</span>`);
     }
-    return `<section class="card">
+    // ── 阶段文档中心 ──────────────────────────────────────────────
+    // 把本变更的**全部**阶段产物聚到一处（含尚未产出的），每个都有锚点：
+    // 点 chip 或点阶段里的产物名 → 跳到对应文档并自动展开。
+    const catalog = docCatalog(c);
+    const chips = catalog.map((d) => {
+      const label = esc(d.file);
+      if (!d.ok) {
+        return `<span class="dchip no" title="尚未产出${d.stage ? `（${esc(d.stage)}阶段要求）` : ''}">✗ ${label}</span>`;
+      }
+      return `<a class="dchip ok" href="#${docAnchor(c.itemId, d.file)}" title="${esc(docLabelOf(d.file))}${d.stage ? ` · ${esc(d.stage)}` : ''}">${label}</a>`;
+    }).join('');
+    const docBlocks = catalog.map((d) => {
+      const id = docAnchor(c.itemId, d.file);
+      const body = c.docs[d.file];
+      const stageTag = `<span class="dstage">${d.stage ? esc(d.stage) : '—'}</span>`;
+      if (!body) {
+        return `<div class="doc missing" id="${id}">
+          <div class="drow"><span class="no">✗</span> <span class="mono">${esc(d.file)}</span>${stageTag}
+            <span class="small">尚未产出${d.stageKey ? `　·　可用 ${fillHint(c, d.stageKey)} 生成模板` : ''}</span></div>
+        </div>`;
+      }
+      return `<details class="doc" id="${id}">
+        <summary><span class="ok">✓</span> <span class="mono">${esc(d.file)}</span>${stageTag}
+          <span class="dlabel">${esc(docLabelOf(d.file))}</span>
+          <span class="copy">查看全文</span></summary>
+        <pre class="docbody">${esc(body)}</pre>
+      </details>`;
+    }).join('');
+    const produced = catalog.filter((d) => d.ok).length;
+    const docCenter = catalog.length ? `<div class="doccenter">
+      <div class="docbar">
+        <span class="muted small">阶段文档（${produced}/${catalog.length} 已产出）：</span>
+        ${chips}
+        <span class="docbar-actions">
+          <button type="button" class="dbx" data-doc-expand="1">全部展开</button>
+          <button type="button" class="dbx" data-doc-expand="0">全部收起</button>
+        </span>
+      </div>
+      <div class="docs">${docBlocks}</div>
+    </div>` : '';
+
+    return `<section class="card" id="chg-${slugOf(c.itemId)}">
     <h2>${esc(c.itemId)} <span class="tier">${esc(c.tier)}</span></h2>
     ${alerts.length ? `<div class="alerts">${alerts.join('')}</div>` : ''}
     <div class="flow">${flow}</div>
+    ${docCenter}
     <div class="progress"><div class="bar" style="width:${pct}%"></div></div>
     <div class="muted">任务进度：${c.done}/${c.taskTotal} 已完成（进行中 ${c.running}，阻塞 ${c.blocked}）</div>
-    ${c.taskTotal ? `<details class="graph"><summary>任务依赖图（连线=依赖，颜色=状态）</summary>
-      <pre class="mermaid">${esc(renderTaskGraph(c).replace(/^```mermaid\n/, '').replace(/\n```$/, ''))}</pre>
-    </details>` : ''}
+    ${c.taskTotal ? (() => {
+      // 依赖关系用原生 HTML 表达（不再依赖 Mermaid CDN）——离线也能正确显示，
+      // 且每个依赖都是可点的锚点，直接跳到目标任务。
+      const depRows = c.tasks.filter((t) => {
+        const d = String(t.dep || '').trim();
+        return d && d !== '无';
+      }).map((t) => {
+        const deps = String(t.dep).split(/[、,，;；\s]+/).filter(Boolean);
+        const links = deps.map((d) => {
+          const known = c.tasks.some((x) => x.t === d);
+          return known
+            ? `<a class="doclink mono" href="#task-${slugOf(c.itemId)}-${slugOf(d)}">${esc(d)}</a>`
+            : `<span class="mono">${esc(d)}</span>`;
+        }).join('、');
+        return `<li><a class="doclink mono" href="#task-${slugOf(c.itemId)}-${slugOf(t.t)}">${esc(t.t)}</a>`
+          + ` <span class="small">依赖</span> ${links}</li>`;
+      }).join('');
+      return `<details class="graph"><summary>任务依赖关系（${depRows ? '点编号跳到任务' : '无依赖'}）</summary>
+      ${depRows ? `<ul class="deplist">${depRows}</ul>`
+        : '<p class="muted small">所有任务相互独立，无依赖。</p>'}
+    </details>`;
+    })() : ''}
     ${c.taskTotal ? `<div class="filterbar" data-for="${esc(c.itemId)}">
       <span class="muted small">任务列表：</span>
       <button type="button" class="fbtn on" data-filter="all">全部 ${c.taskTotal}</button>
@@ -2118,8 +2248,6 @@ function cmdView(flags) {
  details.graph{margin:0 0 10px}
  details.graph>summary{cursor:pointer;color:var(--mut);font-size:12px}
  details.graph>summary::-webkit-details-marker{display:none}
- pre.mermaid{background:#fbfdff;border:1px solid var(--bd);border-radius:8px;padding:10px;overflow:auto;
-   font-size:12px;line-height:1.4;white-space:pre;margin:8px 0 0}
  details.arch>summary{cursor:pointer;font-weight:600}
  details.doc>summary{cursor:pointer;list-style:none}
  details.doc>summary::-webkit-details-marker{display:none}
@@ -2163,30 +2291,65 @@ function cmdView(flags) {
  .badge{display:inline-block;padding:3px 10px;border-radius:6px;font-size:12px}
  .badge.ok{background:#e8f5ec;color:#0a7d33} .badge.warn{background:#fff4e5;color:#b7791f} .badge.bad{background:#fdecea;color:#c0392b}
  footer{margin-top:22px;color:var(--mut);font-size:12px}
+  /* ── 阶段文档中心 ─────────────────────────────────────── */
+  .doccenter{margin:12px 0 4px;border:1px solid var(--bd);border-radius:8px;overflow:hidden}
+  .docbar{display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:9px 12px;background:#fbfdff;border-bottom:1px solid var(--bd)}
+  .docbar-actions{margin-left:auto;display:flex;gap:6px}
+  .dchip{font-size:12px;border-radius:999px;padding:1px 9px;text-decoration:none;border:1px solid var(--bd)}
+  .dchip.ok{background:#e8f5ec;color:#0a7d33;border-color:#bfe3c9}
+  .dchip.ok:hover{background:#d7eedf}
+  .dchip.no{background:#f6f7f9;color:#9ca3af;border-style:dashed}
+  .dbx{font:inherit;font-size:12px;padding:2px 9px;border:1px solid var(--bd);background:#fff;border-radius:999px;cursor:pointer;color:#374151}
+  .dbx:hover{border-color:#94a3b8}
+  .docs{padding:2px 12px 8px}
+  details.doc{border-bottom:1px dashed var(--bd)}
+  details.doc:last-child{border-bottom:0}
+  details.doc>summary{display:flex;align-items:center;gap:8px;padding:7px 2px;cursor:pointer;list-style:none}
+  details.doc>summary::-webkit-details-marker{display:none}
+  details.doc>summary:hover{background:#f6f9ff}
+  details.doc[open]>summary{font-weight:600;background:#eef4ff}
+  .dstage{font-size:11px;color:#fff;background:#94a3b8;border-radius:4px;padding:0 6px;white-space:nowrap}
+  .dlabel{font-size:12px;color:var(--mut)}
+  details.doc[open] .copy{visibility:hidden}
+  .doc.missing{padding:7px 2px;border-bottom:1px dashed var(--bd);color:#c0392b}
+  .doc.missing:last-child{border-bottom:0}
+  .drow{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+  .ok{color:#0a7d33} .no{color:#c0392b}
+  .doclink{color:#2563eb;text-decoration:none;border-bottom:1px dotted #93c5fd}
+  .doclink:hover{color:#1d4ed8;border-bottom-style:solid}
+  /* 锚点高亮：从阶段产物或外部深链跳进来时，让目标一眼可见 */
+  details.doc:target>summary{outline:2px solid #2563eb;outline-offset:-2px;border-radius:6px;background:#eef4ff}
+  .doc.missing:target{outline:2px solid #2563eb;outline-offset:-2px;border-radius:6px}
+  details.task:target>summary{background:#eef4ff;outline:2px solid #2563eb;outline-offset:-2px}
+  /* ── 需求流转总览（原生渲染，不依赖 Mermaid） ───────────── */
+  .stageflow{display:flex;flex-wrap:wrap;align-items:flex-start;gap:8px}
+  .sfcol{min-width:108px;border:1px solid var(--bd);border-radius:8px;padding:8px;background:#fbfdff}
+  .sfcol.has{background:#fff;border-color:#cbd5e1}
+  .sfname{font-size:12px;color:var(--mut);margin-bottom:6px;white-space:nowrap}
+  .sfitem{display:block;font-size:12px;text-decoration:none;color:#2563eb;padding:2px 0;border-bottom:1px dotted #93c5fd}
+  .sfitem:hover{color:#1d4ed8}
+  ul.deplist{list-style:none;margin:6px 0 0;padding:0;font-size:12px}
+  ul.deplist li{padding:2px 0}
 </style></head><body>
 <h1>devflow 视图 · ${esc(loaded.config?.devflow?.project || path.basename(root))}</h1>
 <div class="sub">${esc(root)}　·　生成于 ${esc(localTime(new Date().toISOString()))}</div>
 ${verdict ? `<section class="card"><h2>门禁可信度</h2><span class="badge ${verdict.trustworthy ? (verdict.counts?.weak ? 'warn' : 'ok') : 'bad'}">${esc(verdict.summary)}</span><div class="muted" style="margin-top:8px">阻断 ${verdict.counts?.block ?? 0} · 削弱 ${verdict.counts?.weak ?? 0} · 提示 ${verdict.counts?.info ?? 0}</div></section>` : ''}
-${items.length ? `<section class="card"><details class="graph" open><summary>需求流转图（每个需求处于哪个节点）</summary>
-    <pre class="mermaid">${esc(renderFlowGraph(items).replace(/^```mermaid\n/, '').replace(/\n```$/, ''))}</pre>
-  </details></section>` : ''}
+${items.length ? `<section class="card"><h2>需求流转总览</h2>
+  <div class="stageflow">${STATE_FLOW.map((k, i) => {
+    const list = items.filter((c) => (STATE_FLOW.includes(c.state) ? c.state : 'draft') === k);
+    const col = `<div class="sfcol ${list.length ? 'has' : ''}">
+      <div class="sfname">${esc(STATE_NAME[k])}<span class="cnt">${list.length}</span></div>
+      ${list.map((c) => `<a class="sfitem" href="#chg-${slugOf(c.itemId)}">${esc(c.itemId)}</a>`).join('')}
+    </div>`;
+    return (i ? '<span class="arrow">→</span>' : '') + col;
+  }).join('')}</div>
+  <p class="muted small">点任意变更跳到它下面。文档锚点形如 <code class="mono">#doc-&lt;变更&gt;-&lt;文档&gt;</code>，可直接分享。</p>
+</section>` : ''}
 ${changeHtml || '<section class="card"><p class="muted">暂无在办变更。可在对话里提出一个需求开始。</p></section>'}
 ${items[0] && items[0].arch ? `<section class="card"><details class="arch"><summary>项目架构与约定（.devflow/architecture.md）</summary><pre class="docbody">${esc(items[0].arch)}</pre></details></section>` : ''}
 <footer>本文件是渲染产物（按需重算，不入库）。数据来源：变更状态、TASKS.md 的任务级状态、体检结论。
-<!-- Mermaid 渲染器：唯一外部依赖，且**失败时降级为纯文本图**（不联网/离线打开仍可用）。
-     若你的环境不能联网，图会以源码形式显示（仍是可读的文本），不是坏页面。 -->
-<script type="module">
-try {
-  const m = await import('https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.esm.min.mjs');
-  m.default.initialize({ startOnLoad: false, theme: 'neutral', securityLevel: 'loose' });
-  await m.default.run({ querySelector: 'pre.mermaid' });
-} catch (e) {
-  document.querySelectorAll('pre.mermaid').forEach((el) => {
-    el.insertAdjacentHTML('beforebegin',
-      '<p class="muted small">（未能加载图形渲染器 —— 下面是 Mermaid 源码，可直接复制到支持 Mermaid 的地方渲染）</p>');
-  });
-}
-</script>
+<!-- 图形渲染：**不依赖任何 CDN**。阶段流转与任务依赖已改为原生 HTML，
+     离线打开与断网环境下的显示完全一致（此前用 Mermaid CDN，失败时会露出源码）。 -->
 <script>
 /* 唯一的脚本：让"阶段芯片"与"任务列表"联动。
    设计约束：① 不联网、不依赖外部库；② 禁用 JS 时信息仍完整可见（脚本只做显隐，不生成内容）。 */
@@ -2225,6 +2388,42 @@ try {
         card.querySelectorAll('details.st').forEach(function(o){ if (o !== st) o.open = false; });
         applyFilter(card, key);
       });
+    });
+  });
+})();
+</script>
+<script>
+/* 交互增强：深链锚点自动展开 + 文档区批量展开/收起。
+   约束：不联网、无外部依赖；即使脚本不执行，所有内容仍可见（details 可手点）。 */
+(function(){
+  function openHashTarget(){
+    var raw = (location.hash || '').replace(/^#/, '');
+    if (!raw) return;
+    var id;
+    try { id = decodeURIComponent(raw); } catch (e) { id = raw; }
+    var el = document.getElementById(id);
+    if (!el) return;
+    // 逐层展开祖先 details（文档可能位于折叠的容器里）
+    var n = el;
+    while (n && n !== document.body) {
+      if (n.tagName === 'DETAILS') n.open = true;
+      n = n.parentElement;
+    }
+    if (el.tagName === 'DETAILS') el.open = true;
+    try { el.scrollIntoView({ block: 'start', behavior: 'smooth' }); } catch (e) { el.scrollIntoView(); }
+  }
+  window.addEventListener('hashchange', openHashTarget);
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', openHashTarget);
+  } else {
+    openHashTarget();
+  }
+  document.querySelectorAll('[data-doc-expand]').forEach(function(btn){
+    btn.addEventListener('click', function(){
+      var want = btn.getAttribute('data-doc-expand') === '1';
+      var card = btn.closest('.card');
+      if (!card) return;
+      card.querySelectorAll('.docs details.doc').forEach(function(d){ d.open = want; });
     });
   });
 })();

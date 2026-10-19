@@ -591,7 +591,7 @@ startStream();
 
 // ── 服务 ───────────────────────────────────────────────────
 
-export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onReady }) {
+export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onReady, onError }) {
   /** 默认根（启动时确定）；每个请求都可以用 ?root= 覆盖 */
   const defaultRoot = projectRoot;
 
@@ -731,6 +731,12 @@ export function startBoard({ projectRoot, port = 8787, intervalMs = 2000, onRead
     res.end('not found');
   });
 
+  // 端口被占用时不要把裸 Node 栈抛给用户（实测 EADDRINUSE 会直接 crash 掉进程），
+  // 交给调用方决定文案与退出码。
+  server.on('error', (err) => {
+    if (onError) onError(err);
+    else throw err;
+  });
   server.listen(port, '127.0.0.1', () => {
     const addr = `http://127.0.0.1:${port}`;
     onReady?.(addr);

@@ -432,7 +432,7 @@ export function evaluateGates(ctx) {
           point: pt,
           spec: pt === '需求与判据' ? specText : undefined,
           contract: pt === '契约冻结' ? contractText : undefined,
-          verification: pt === '发布批准' ? verificationText : undefined,
+          verification: pt === '发布批准' ? verText : undefined,
         });
         if (!cur) return false;
         if (was !== cur) { stalePoints.push({ point: pt, was, cur }); return true; }

@@ -24,14 +24,16 @@
     "examples",
     "VERSION",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "test"
   ],
   "engines": {
     "node": ">=18"
   },
   "scripts": {
     "selfcheck": "node scripts/selfcheck.mjs",
-    "verify": "bash examples/verify-all.sh"
+    "verify": "bash examples/verify-all.sh",
+    "test": "node --test test/*.test.mjs"
   },
   "repository": {
     "type": "git",

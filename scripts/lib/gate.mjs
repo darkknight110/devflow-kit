@@ -38,14 +38,20 @@ function exempt(gate, checks, notes, extra = {}) {
  *   · 曾经"剥掉全部引用块" ⇒ 把写在 `> ` 里的真实声称也放过了（SC32 实测抓到）。
  *   · 模板注释里的「独立复核」字样若不剥 ⇒ 还没做复核就被判"声称无留痕"。
  * 因此：剥 HTML 注释（全文）+ 剥**首章之前**的引用块（模板指引）。
+ *
+ * 第三种实测形态（2026-10 单测抓到）：文档**直接从 `## ` 开头**、没有标题行的前导区。
+ * 原先用 `indexOf('\n## ')` 找首章，此时返回 -1 ⇒ 整篇被当作"前导区"，
+ * 于是正文里的 `> 已做独立复核` 被当成模板指引剥掉 —— 真做了复核的人反而被判"声称无留痕"。
+ * 现在的判据按**行首**定位：只有首章之前的行是前导区；没有 `## ` 标题时不存在前导区。
  */
 export function stripNonClaims(text) {
   const src = String(text || '').replace(/<!--[\s\S]*?-->/g, '');
-  const i = src.indexOf('\n## ');
-  const head = i < 0 ? src : src.slice(0, i);
-  const body = i < 0 ? '' : src.slice(i);
-  const headClean = head.split('\n').filter((l) => !/^\s*>/.test(l)).join('\n');
-  return headClean + body;
+  const lines = src.split('\n');
+  const firstHeading = lines.findIndex((l) => /^## /.test(l));
+  if (firstHeading <= 0) return src;
+  const head = lines.slice(0, firstHeading).filter((l) => !/^\s*>/.test(l)).join('\n');
+  const body = lines.slice(firstHeading).join('\n');
+  return `${head}\n${body}`;
 }
 
 export function isIndependentClaim(text) {

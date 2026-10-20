@@ -1,5 +1,7 @@
 # devflow-kit
 
+<sub>中文 · <a href="README.en.md">English</a></sub>
+
 > **通用研发工作流**：从需求、拆解、契约、实现、测试、验证到发布。
 > 与项目无关、**零依赖**（只用 Node 内置模块）、**数据与界面解耦**。
 > 强制力来自**产物契约 + 状态机 + 可执行门禁**，不来自文档。
@@ -126,6 +128,7 @@ devflow-kit/
 ## 验证（交付前必须全绿）
 
 ```bash
+npm test                              # 单元测试（纯函数层，43 例，node:test，零依赖）
 bash examples/verify-all.sh           # ★ 一次跑完全部验收（自检 + 六套端到端），交付前跑这个
 node scripts/selfcheck.mjs            # 门禁体系自检：70/70
 bash examples/verify-example.sh       # 端到端（Node 形态，33 条断言）
@@ -172,6 +175,15 @@ ASCII 字符画（`┌─┐│└┘`）画的架构图，转成 Word/PDF 后�
 - 仓库：https://github.com/darkknight110/md-to-office
 - 许可：MIT
 - 只出 Word 时零外部依赖（仅 `python-docx` + `Pillow`）
+
+---
+
+## 门禁判据（可单独引用）
+
+每条门禁在防哪一种"看起来通过"、通过条件、留下什么证据、真实踩过什么坑：
+**[`docs/09-gates-reference.md`](docs/09-gates-reference.md)** —— 含 12 条反例（恒真门禁、空转的负向对照、管道退出码、只取第一行计数……）。
+
+想把这套判据搬进自己的项目：读 `spec/gates.json`（机器正典），或把该文档第四节整段贴进 `CONTRIBUTING.md`。
 
 ---
 

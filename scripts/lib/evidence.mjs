@@ -220,7 +220,11 @@ export function hasFailureEvidence(raw) {
   return FAILURE_MARKERS.some((re) => re.test(String(raw || '')));
 }
 
-function matchCount(raw, regex) {
+/**
+ * 抓取测试计数。导出以便单元测试直接钉住「累加所有匹配」这条规则 ——
+ * 它对应的真实缺陷（多模块把 15 个测试记成 4 个）在端到端里偶发，单测才能稳定复现。
+ */
+export function matchCount(raw, regex) {
   try {
     const re = new RegExp(regex, 'g');
     let total = 0;

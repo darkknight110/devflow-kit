@@ -20,6 +20,8 @@ jobs:
         run: |
           node --version
           test ! -d node_modules || { echo "本产品要求零依赖，不应存在 node_modules"; exit 1; }
+      - name: 单元测试（纯函数层，node:test）
+        run: npm test
       - name: 自检
         run: node scripts/selfcheck.mjs
       - name: 五套端到端（含人的闭环）

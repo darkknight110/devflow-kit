@@ -432,19 +432,23 @@ if "$DF" view --out "$P/view.html" >/tmp/hl-view.log 2>&1; then
   for k in "需求澄清" "责任层" "项目架构与约定"; do
     grep -q "$k" "$P/view.html" && pass "视图含：$k" || fail "视图缺少：$k"
   done
-  # 视图约束（第 12 期校准，**这是一次有意的取舍调整**）：
-  #   允许**一个**可选的外部图形渲染器（Mermaid CDN），因为"图形化"是明确的产品诉求；
-  #   但硬性要求：**离线时必须优雅降级**（图退化为可读的 Mermaid 源码，而不是坏页面）。
-  #   仍然禁止：除渲染器之外的任何外部脚本/样式/字库。
+  # 视图约束（第 12 期校准；2026-10 修正断言与环境脱节）：
+  #   三种合法形态，判定顺序即优先级：
+  #     ① 完全自包含（不含任何外部 js/css）：最优先，离线永远可用，不需要降级提示；
+  #     ② 只引一个可选的 Mermaid 渲染器（CDN）：必须带"未能加载图形渲染器"的降级提示；
+  #     ③ 其他外链：一律失败（离线会变成坏页面）。
+  #   旧断言只认 ②，"自包含"反而被判失败 —— 与实现脱节，已连续多轮是红的。
   if grep -qE '<script[^>]+src=' "$P/view.html"; then
     fail "视图用了 <script src> 外链（应改为可降级的动态导入）"
   elif grep -qE 'https?://[^"'"'"' ]+\.(js|css)' "$P/view.html" \
        && ! grep -qE 'mermaid@[0-9]+' "$P/view.html"; then
     fail "视图引用了 Mermaid 之外的外部资源"
-  elif ! grep -q '未能加载图形渲染器' "$P/view.html"; then
+  elif grep -qE 'mermaid@[0-9]+' "$P/view.html" && ! grep -q '未能加载图形渲染器' "$P/view.html"; then
     fail "视图加载外部渲染器但没有降级提示（离线会变成坏页面）"
-  else
+  elif grep -qE 'mermaid@[0-9]+' "$P/view.html"; then
     pass "视图自包含 + 可选图形渲染器（$(wc -c < "$P/view.html" | tr -d ' ') 字节）；离线降级为源码"
+  else
+    pass "视图完全自包含（$(wc -c < "$P/view.html" | tr -d ' ') 字节，无任何外链）；离线可直接打开"
   fi
   # 联动要素必须存在（阶段芯片可点、任务可被过滤）
   if grep -q 'data-stage=' "$P/view.html" && grep -q 'data-stages=' "$P/view.html" && grep -q 'fbtn' "$P/view.html"; then

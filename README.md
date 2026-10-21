@@ -21,7 +21,8 @@ python3 tools/demo/capture_flow.py --out docs/demo-flow.json   # 真跑一遍并
 python3 tools/make_flow_gif.py --data docs/demo-flow.json --out docs/demo-flow.gif
 ```
 
-<sub>静图版：[docs/demo-flow.png](docs/demo-flow.png)（不支持动图的地方用）。
+<sub>静图版：[docs/demo-flow.png](docs/demo-flow.png)（末帧）· **四格故事板**：[docs/demo-flow-story.png](docs/demo-flow-story.png)（最清晰，适合贴文档/PPT）。
+动图 1200×744、2 倍超采样后缩回，文字边缘不糊；GIF 里每行是真实输出的**截断**（长行以 … 结尾），完整原文见 `docs/demo-flow.json`。
 生成图需要 Pillow —— **只用于演示渲染**，devflow 本体仍是零依赖。</sub>
 
 ## 先拿到它

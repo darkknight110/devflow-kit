@@ -30,8 +30,19 @@ python3 tools/make_flow_gif.py --data docs/demo-flow.json --out docs/demo-flow.g
 ## 先拿到它
 
 ```bash
+curl -fsSL https://raw.githubusercontent.com/darkknight110/devflow-kit/main/install.sh | sh
+```
+
+装到 `~/.devflow-kit`，并链接 `devflow` 到 `~/.local/bin`（不在 PATH 里会提示你加一行）。
+安装脚本只做三件事：克隆/快进、链接、自检 Node 版本；**不用 sudo，也不覆盖本地改动**。
+
+<details><summary>不想用脚本？手动克隆</summary>
+
+```bash
 git clone https://github.com/darkknight110/devflow-kit.git ~/.devflow-kit
 ```
+
+</details>
 
 > **不走 npm**：`devflow-kit` 这个 npm 包名**属于另一个不相关的项目**（[dean0x/devflow](https://github.com/dean0x/devflow)）。
 > `npm install -g devflow-kit` / `npx devflow-kit` 能装成功，但装到的不是本工具 —— 所以本工具只通过 git clone 分发。

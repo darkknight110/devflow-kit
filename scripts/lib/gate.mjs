@@ -7,7 +7,7 @@
  *   - 负向对照缺失或恒真 ⇒ unverified（⚠），不阻断、也绝不给 pass；
  *   - 启发式门禁（G7）必须自带"存在漏报"的说明，不得当作硬保证。
  */
-import { existsSync, statSync } from 'node:fs';
+import { existsSync, statSync, readdirSync } from 'node:fs';
 import path from 'node:path';
 import { dirSizeKb, exists, findSection, keyValues, parseAcceptanceCriteria, parseApprovals, parseTasks, parseVerification, readText, listFiles, isRealValue } from './checks.mjs';
 import { currentFingerprint } from './review.mjs';
@@ -627,6 +627,23 @@ export function evaluateGates(ctx) {
   }
 
   // ── G9 发布前置门禁：进 released 之前，声明过的门禁必须各有一条 pass 记录 ──
+  // 判定还要看**新鲜度**：记录早于最近一次产物修改 ⇒ 视为旧证据。
+  // 否则 `advance --to released --no-run` 就能拿三天前的绿灯充当今天的证据。
+  const newestArtifactMs = () => {
+    const dirs = [itemDir, path.join(projectRoot, '.devflow', 'items', ctx.itemId || '')];
+    let newest = 0;
+    const walk = (dir) => {
+      if (!existsSync(dir)) return;
+      for (const entry of readdirSync(dir, { withFileTypes: true })) {
+        const full = path.join(dir, entry.name);
+        if (entry.isDirectory()) { walk(full); continue; }
+        if (entry.name === 'STATUS.json' || entry.name === 'STATE') continue; // 机器状态不是产物
+        try { newest = Math.max(newest, statSync(full).mtimeMs); } catch { /* 忽略 */ }
+      }
+    };
+    for (const d of dirs) walk(d);
+    return newest;
+  };
   // 为什么单独一条：`advance --to tested` 跑门禁，但"跑过"与"发布时仍然绿"是两件事。
   // 项目用 devflow.json 的 release.requires 指定哪些门禁必须在发布前证明通过
   // （典型：交付物数据体检、契约兼容性检查）。未声明则不额外要求。
@@ -639,14 +656,19 @@ export function evaluateGates(ctx) {
       }));
     } else {
       const records9 = Array.isArray(ctx.status?.lastRun?.records) ? ctx.status.lastRun.records : [];
+      const newest = newestArtifactMs();
       const missing9 = [];
       const failing9 = [];
       const passing9 = [];
       for (const id of required9) {
         const rec = [...records9].reverse().find((r) => r.gate === id);
         if (!rec) missing9.push(id);
-        else if (rec.verdict === 'pass') passing9.push(id);
-        else failing9.push(`${id}（${rec.verdict}）`);
+        else if (rec.verdict !== 'pass') failing9.push(`${id}（${rec.verdict}）`);
+        else {
+          const at = Date.parse(rec.startedAt || rec.at || '');
+          if (Number.isFinite(at) && at + 1000 < newest) failing9.push(`${id}（记录早于最近一次修改）`);
+          else passing9.push(id);
+        }
       }
       const notes9 = [];
       if (missing9.length) notes9.push(`发布前置门禁尚未运行：${missing9.join('、')}（先跑 devflow gate run <变更>）`);

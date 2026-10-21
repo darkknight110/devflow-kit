@@ -109,6 +109,7 @@
 - **判据**：`devflow.json` 的 `release.requires` 列出的每个项目门禁，在进入 `released` 之前必须各有一条 **pass** 记录。缺失、失败、`unverified`（⚠）、`exempt` 都阻断。
 - **证据**：`required` / `passing` / `missing` / `failing`。
 - **反例**：昨天跑绿过、今天改完代码直接 `advance --to released --no-run` —— 记录是绿的，产物已经不是那个产物了。
+  因此 G9 还查**新鲜度**：记录的 `startedAt` 早于最近一次产物修改 ⇒ 判旧证据（blocked）。
   **正确做法**：声明了 `release.requires` 时，`advance --to released` 会**先现跑一遍门禁**再判定；`--no-run` 只用于排障。
 - **边界**：不声明 `requires` 就不额外要求——这条门禁是 opt-in 的，不替项目决定「发布前该证明什么」。
 
@@ -155,4 +156,4 @@
 - **想要可执行版本**：`devflow init` 后 `devflow doctor`，把 D1–D4 当作"门禁自检"。
 - **改判据**：改 `spec/gates.json` 并同步本文；`test/` 下有对应单测，`scripts/selfcheck.mjs` 有对应端到端用例（SC1–SC71）。
 
-> 版本：1.27.0　对应 `spec/gates.json` 的 `version` 字段。
+> 版本：1.27.1　对应 `spec/gates.json` 的 `version` 字段。

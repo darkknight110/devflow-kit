@@ -2578,15 +2578,25 @@ function sc71() {
   const warnInfo = evaluate(root, itemId, 'released', config);
   const g9warn = verdictOf(warnInfo.results, 'G9');
 
+  // 旧记录不算证据：产物改过之后，三天前的 pass 记录必须失效
+  put('pass');
+  const statusPath = `.devflow/items/${itemId}/STATUS.json`;
+  const stale = JSON.parse(readFileSync(path.join(root, statusPath), 'utf8'));
+  stale.lastRun.records[0].startedAt = '2020-01-01T00:00:00.000Z';
+  write(root, statusPath, JSON.stringify(stale));
+  write(root, `.devflow/items/${itemId}/SPEC.md`, '# 改过的产物\n');
+  const staleInfo = evaluate(root, itemId, 'released', config);
+  const g9stale = verdictOf(staleInfo.results, 'G9');
+
   // 未到 released 时不额外要求（否则每个状态都会被 G9 挡）
   put('fail');
   const midInfo = evaluate(root, itemId, 'verified', config);
   const g9mid = verdictOf(midInfo.results, 'G9');
 
-  record('SC71', '发布前置门禁：released 前必须证明通过，⚠ 不算通过',
-    'pass⇒G9=pass；fail⇒blocked；unverified⇒blocked；非 released 状态不出现 G9',
-    `pass=${g9ok} fail=${g9fail} unverified=${g9warn} verified=${g9mid}`,
-    g9ok === 'pass' && g9fail === 'blocked' && g9warn === 'blocked' && g9mid === 'missing',
+  record('SC71', '发布前置门禁：released 前必须证明通过，⚠ 与旧记录都不算',
+    'pass⇒G9=pass；fail/unverified/记录早于最近修改⇒blocked；非 released 状态不出现 G9',
+    `pass=${g9ok} fail=${g9fail} unverified=${g9warn} stale=${g9stale} verified=${g9mid}`,
+    g9ok === 'pass' && g9fail === 'blocked' && g9warn === 'blocked' && g9stale === 'blocked' && g9mid === 'missing',
     failInfo.results.find((r) => r.gate === 'G9')?.notes);
   rmSync(root, { recursive: true, force: true });
 }

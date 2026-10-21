@@ -609,8 +609,10 @@ if [ -z "$TOOL" ]; then
   exit 2
 fi
 FIXTURE="$(dirname "$TOOL")/make_dirty_fixture.py"
-DIRTY=".devflow/preflight-dirty.xlsx"
-mkdir -p .devflow
+# 放在 .devflow/.local/ 下：这是 .gitignore 已忽略的机器状态目录，
+# 脏样本是"体检用的耗材"，不该被提交进仓库。
+DIRTY=".devflow/.local/preflight-dirty.xlsx"
+mkdir -p .devflow/.local
 python3 "$FIXTURE" --out "$DIRTY" >/dev/null || { echo "FAIL 脏样本生成失败" >&2; exit 2; }
 python3 "$TOOL" "$DIRTY"
 `,

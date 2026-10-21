@@ -120,11 +120,13 @@ export function evaluateItem({ projectRoot, itemId, kitSpec, config, cwd, stateO
   // stateOverride：用于「按目标状态判定门禁」——推进时必须校验的是目标状态，而不是当前状态。
   // 否则 draft 状态万事无要求，缺件也能被推进，门禁形同虚设。
   if (stateOverride) state = stateOverride;
-  const gates = evaluateGates({ projectRoot, itemId, itemDir, state, actualState, kitSpec, config, cwd });
+  const status = readStatus(itemDir);
+  // 把 STATUS.json 一并传进去：G9（发布前置门禁）要读上一次门禁运行的记录，
+  // 但 gate.mjs 不能 import state.mjs（会形成循环依赖），所以由调用方注入。
+  const gates = evaluateGates({ projectRoot, itemId, itemDir, state, actualState, kitSpec, config, cwd, status });
   const summary = summarize(gates);
   const tier = readTier(itemDir, kitSpec.states);
   const size = dirSizeKb(itemDir);
-  const status = readStatus(itemDir);
   return {
     ok: true,
     itemId,

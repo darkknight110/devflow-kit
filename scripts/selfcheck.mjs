@@ -84,7 +84,9 @@ function makeSpec(root, itemId, tier, surface = ['internal']) {
 
 function evaluate(root, itemId, state, config) {
   const itemDir = path.join(root, '.devflow', 'items', itemId);
-  const results = evaluateGates({ projectRoot: root, itemId, itemDir, state, actualState: state, kitSpec: KIT, config, cwd: root });
+  let status = null;
+  try { status = JSON.parse(readFileSync(path.join(itemDir, 'STATUS.json'), 'utf8')); } catch { status = null; }
+  const results = evaluateGates({ projectRoot: root, itemId, itemDir, state, actualState: state, kitSpec: KIT, config, cwd: root, status });
   return { results, summary: summarize(results), itemDir };
 }
 
@@ -2545,11 +2547,56 @@ function sc66() {
   rmSync(root, { recursive: true, force: true });
 }
 
+/**
+ * SC71：发布前置门禁（G9）—— 声明过的门禁必须在 released 前"有 pass 记录"。
+ * 依据：`advance --to tested` 跑过门禁 ≠ 发布时仍然绿。发布是最后一次签字，
+ * 不能拿几天前的记录或一个 ⚠ 充当证据。
+ */
+function sc71() {
+  const root = tmpProject('release-gate');
+  const itemId = '2026-01-01-rel';
+  const config = makeConfig(root, {
+    data: { run: 'echo ok', negative_control: 'sh -c "echo FAIL data; exit 1"' },
+  });
+  config.release = { requires: ['data'] };
+  writeState(root, itemId, 'verified');
+  const put = (verdict) => write(root, `.devflow/items/${itemId}/STATUS.json`, JSON.stringify({
+    item: itemId, state: 'verified',
+    lastRun: { records: [{ gate: 'data', verdict, exitCode: verdict === 'pass' ? 0 : 1, notes: [] }] },
+  }));
+
+  put('pass');
+  const okInfo = evaluate(root, itemId, 'released', config);
+  const g9ok = verdictOf(okInfo.results, 'G9');
+
+  put('fail');
+  const failInfo = evaluate(root, itemId, 'released', config);
+  const g9fail = verdictOf(failInfo.results, 'G9');
+
+  // ⚠ 未验证不能被当作通过：发布不接受 unverified
+  put('unverified');
+  const warnInfo = evaluate(root, itemId, 'released', config);
+  const g9warn = verdictOf(warnInfo.results, 'G9');
+
+  // 未到 released 时不额外要求（否则每个状态都会被 G9 挡）
+  put('fail');
+  const midInfo = evaluate(root, itemId, 'verified', config);
+  const g9mid = verdictOf(midInfo.results, 'G9');
+
+  record('SC71', '发布前置门禁：released 前必须证明通过，⚠ 不算通过',
+    'pass⇒G9=pass；fail⇒blocked；unverified⇒blocked；非 released 状态不出现 G9',
+    `pass=${g9ok} fail=${g9fail} unverified=${g9warn} verified=${g9mid}`,
+    g9ok === 'pass' && g9fail === 'blocked' && g9warn === 'blocked' && g9mid === 'missing',
+    failInfo.results.find((r) => r.gate === 'G9')?.notes);
+  rmSync(root, { recursive: true, force: true });
+}
+
   sc65();
   sc66();
   sc67();
   sc68();
   sc70();
+  sc71();
   sc69();
   return {
     kitRoot: KIT_ROOT,

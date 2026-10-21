@@ -89,7 +89,7 @@ draft → spec_ready → contracted → implementing → tested → verified →
 | pending | ○ | 未运行 | 否 |
 | stale | ⏸ | 确认点超时 | 否 |
 
-### 5.2 八项门禁
+### 5.2 九项门禁
 
 | 门禁 | 名称 | 层级 | 检查什么 |
 |---|---|---|---|
@@ -102,6 +102,8 @@ draft → spec_ready → contracted → implementing → tested → verified →
 | G5 | 状态一致 | 阻断 | STATE 与 STATUS.json 一致；**未知状态直接报错** |
 | G6 | 基线豁免合规 | 阻断 | 豁免须登记原因与清除条件；大变更不得引用；新建项目禁止 |
 | G7 | 变更面与档位匹配 | **标签** | 轻/微档却触碰契约或接口面 ⇒ ⚠ 需人工确认（启发式，会漏报） |
+| G8 | 产物运行时健全性 | 阻断 | 构建退出码 0 但产物跑不起来（如小程序产物残留 `process.env`） |
+| G9 | 发布前置门禁 | 阻断 | `release.requires` 声明的门禁在 released 前必须各有一条 pass 记录（⚠ 不算） |
 
 ### 5.3 doctor：门禁的可信度体检（只读）
 

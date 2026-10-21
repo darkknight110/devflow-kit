@@ -851,6 +851,7 @@ function cmdAdvance(flags, positional) {
   const kitSpec = allSpec();
   // 目标状态是 tested 时，"跑门禁"本身就是这一步的一部分：
   // 引擎自动执行项目门禁并留证据，而不是要求用户先手动跑一次 gate run。
+  const releaseRequires = Array.isArray(loaded?.config?.release?.requires) ? loaded.config.release.requires : [];
   let plan = null;
   if (target === 'tested' && loaded.ok) {
     const status = readStatus(machineDir(root, itemId) || path.join(itemsDir(root), itemId));
@@ -858,6 +859,10 @@ function cmdAdvance(flags, positional) {
     if (!hasRecords || !flags['no-run']) {
       plan = loaded.config ? 'gate run' : null;
     }
+  }
+  // 发布也是一次"签字"：声明了 release.requires 就要**现跑**一遍，不能拿几天前的记录充当证据。
+  if (target === 'released' && loaded.ok && releaseRequires.length && !flags['no-run']) {
+    plan = 'gate run';
   }
   if (plan === 'gate run' && !flags.check) {
     const { records, summary } = executeProjectGates({ root, loaded, itemId, source: 'advance' });

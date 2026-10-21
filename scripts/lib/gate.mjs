@@ -626,6 +626,44 @@ export function evaluateGates(ctx) {
     }
   }
 
+  // ── G9 发布前置门禁：进 released 之前，声明过的门禁必须各有一条 pass 记录 ──
+  // 为什么单独一条：`advance --to tested` 跑门禁，但"跑过"与"发布时仍然绿"是两件事。
+  // 项目用 devflow.json 的 release.requires 指定哪些门禁必须在发布前证明通过
+  // （典型：交付物数据体检、契约兼容性检查）。未声明则不额外要求。
+  if (state === 'released') {
+    const required9 = Array.isArray(config?.release?.requires) ? config.release.requires : [];
+    if (!required9.length) {
+      results.push(ok('G9', ['releaseRequirementsDeclared'], {
+        notes: ['未声明发布前置门禁（devflow.json 的 release.requires 为空）：不额外要求'],
+        evidence: { required: [] },
+      }));
+    } else {
+      const records9 = Array.isArray(ctx.status?.lastRun?.records) ? ctx.status.lastRun.records : [];
+      const missing9 = [];
+      const failing9 = [];
+      const passing9 = [];
+      for (const id of required9) {
+        const rec = [...records9].reverse().find((r) => r.gate === id);
+        if (!rec) missing9.push(id);
+        else if (rec.verdict === 'pass') passing9.push(id);
+        else failing9.push(`${id}（${rec.verdict}）`);
+      }
+      const notes9 = [];
+      if (missing9.length) notes9.push(`发布前置门禁尚未运行：${missing9.join('、')}（先跑 devflow gate run <变更>）`);
+      if (failing9.length) notes9.push(`发布前置门禁未通过：${failing9.join('、')}`);
+      // 未验证/豁免一律不算通过：发布是最后一次"签字"，不能拿 ⚠ 当 ✓
+      if (notes9.length) {
+        results.push(bad('G9', ['releaseRequirementsDeclared', 'requiredGatesPassed'], notes9, {
+          evidence: { required: required9, passing: passing9, missing: missing9, failing: failing9 },
+        }));
+      } else {
+        results.push(ok('G9', ['releaseRequirementsDeclared', 'requiredGatesPassed'], {
+          evidence: { required: required9, passing: passing9 },
+        }));
+      }
+    }
+  }
+
   return results;
 }
 

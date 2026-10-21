@@ -40,6 +40,7 @@
 | G6 | 基线豁免合规 | 阻断 | 用"豁免"把新债洗成旧债，或拿豁免绕过大变更 |
 | G7 | 变更面与档位匹配 | **标签** | 静默降档：轻档悄悄改了接口/契约 |
 | G8 | 产物运行时健全性 | 阻断 | 构建退出码 0，但产物根本跑不起来 |
+| G9 | 发布前置门禁 | 阻断 | 拿旧记录、或拿「未验证」当发布证据 |
 
 ---
 
@@ -104,6 +105,13 @@
 - **反例**：12 行"小改动"顺手改了返回结构，没走契约冻结，下游静默崩。
 - **边界（必须明说）**：这是**启发式**，会漏报。它换来的价值是"不静默放过"，不是"绝不放过"。
 
+### G9 发布前置门禁（阻断）
+- **判据**：`devflow.json` 的 `release.requires` 列出的每个项目门禁，在进入 `released` 之前必须各有一条 **pass** 记录。缺失、失败、`unverified`（⚠）、`exempt` 都阻断。
+- **证据**：`required` / `passing` / `missing` / `failing`。
+- **反例**：昨天跑绿过、今天改完代码直接 `advance --to released --no-run` —— 记录是绿的，产物已经不是那个产物了。
+  **正确做法**：声明了 `release.requires` 时，`advance --to released` 会**先现跑一遍门禁**再判定；`--no-run` 只用于排障。
+- **边界**：不声明 `requires` 就不额外要求——这条门禁是 opt-in 的，不替项目决定「发布前该证明什么」。
+
 ### G8 产物运行时健全性（阻断）
 - **判据**：小程序产物（`dist/` `build/` `out/` 下的 JS）不得残留 `process.env`。
 - **证据**：`files`（命中文件，最多 3 个）/ `scanned`。
@@ -145,6 +153,6 @@
 - **读机器正典**：`spec/gates.json`（判定、层级、检查项、证据字段、版本）。
 - **只想要判据**：把本文第四节整段贴进你的 `CONTRIBUTING.md` 或 agent 指令文件。
 - **想要可执行版本**：`devflow init` 后 `devflow doctor`，把 D1–D4 当作"门禁自检"。
-- **改判据**：改 `spec/gates.json` 并同步本文；`test/` 下有对应单测，`scripts/selfcheck.mjs` 有对应端到端用例（SC1–SC70）。
+- **改判据**：改 `spec/gates.json` 并同步本文；`test/` 下有对应单测，`scripts/selfcheck.mjs` 有对应端到端用例（SC1–SC71）。
 
-> 版本：1.26.0　对应 `spec/gates.json` 的 `version` 字段。
+> 版本：1.27.0　对应 `spec/gates.json` 的 `version` 字段。

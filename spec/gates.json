@@ -1,6 +1,6 @@
 {
   "$comment": "门禁定义正典。引擎按此执行；每类门禁的证据形态、通过条件与是否阻断在此集中定义，不在代码里散落。",
-  "version": "1.26.0",
+  "version": "1.27.0",
   "levels": {
     "block": "阻断：不通过则不允许进入下一状态",
     "label": "标签：不阻断，但结果必须标记为未验证通过（⚠），不得显示为通过（✓）"
@@ -226,6 +226,23 @@
       "scope": "仅当项目看起来是小程序（存在 project.config.json 或 src/app.config.ts）且存在 dist/build/out 产物目录时判定；其余项目不适用",
       "why": "项目自身的 build 门禁只看退出码，产物崩不崩它不管（实测：exit=0 而整包不可用）—— 这类谎报必须由引擎兜住",
       "fix": "补齐 .env（build 所用 mode 的那份，如 .env.production）中缺失的 TARO_APP_* 变量，或为 process.env 加兜底 define"
+    },
+    "G9": {
+      "name": "发布前置门禁",
+      "type": "release",
+      "level": "block",
+      "checks": [
+        "releaseRequirementsDeclared",
+        "requiredGatesPassed"
+      ],
+      "evidence": [
+        "required",
+        "passing",
+        "missing",
+        "failing"
+      ],
+      "description": "devflow.json 的 release.requires 列出的项目门禁，在进入 released 之前必须各有一条 pass 记录。缺失、失败、或只到「未验证通过（⚠）」都阻断；未声明 requires 时不额外要求。",
+      "$comment": "为什么不能复用 G3：G3 防的是「门禁恒真」，G9 防的是「发布时拿旧记录或 ⚠ 当证据」。advance --to released 声明了 requires 时会先现跑一遍门禁。"
     }
   },
   "evidence": {

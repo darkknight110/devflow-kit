@@ -45,6 +45,18 @@ cd <你的项目>
 ./bin/devflow report                          # 生成只读看板
 ```
 
+发布前置门禁（可选，opt-in）：
+
+```json
+{
+  "release": { "requires": ["test", "data"] },
+  "gates": { "test": { "run": "./scripts/test.sh" }, "data": { "run": "./scripts/data-gate.sh" } }
+}
+```
+
+声明后，`advance --to released` 会**先现跑一遍门禁**；任一声明门禁没有 pass 记录（失败、未验证、豁免都算）就拒绝发布。
+判据与反例见 [`docs/09-gates-reference.md`](docs/09-gates-reference.md#g9-发布前置门禁阻断)。
+
 **逐命令帮助**：`devflow help <命令>` 或 `devflow <命令> --help`。
 **纯计划模式**：`devflow new --plan` 只打印将要生成的文件，不写任何东西。
 
@@ -60,6 +72,7 @@ cd <你的项目>
 | 判据不可核 | 每条结果必含命令原文 + 退出码 + 输出尾部（G2） |
 | 恒真门禁静默放行 | 负向对照未声明或恒真 ⇒ **未验证通过（⚠）**，绝不给 ✓（G3） |
 | 静默降档 | 轻档却动契约/接口 ⇒ ⚠ 需人工确认（G7，启发式，明示会漏报） |
+| 发布时拿旧记录当证据 | `release.requires` 声明的门禁必须在 released 前现跑并各有一条 pass 记录（G9，⚠ 不算通过） |
 | 存量项目测试为零 | 基线豁免：显式登记、显示为警告、**只减不增**（G6） |
 | 上下文被压垮 | 变更体积与指令链体积受检（G4 / G4b），不依赖分词器 |
 | 进度看不见 | 阶段/任务声明 + `status --digest` 固定摘要 + 只读 HTML 看板 |
@@ -98,7 +111,7 @@ devflow-kit/
 │   └── roles.json              角色权限矩阵与确认点
 ├── scripts/
 │   ├── cli.mjs                 命令行装配层
-│   ├── selfcheck.mjs           门禁体系自检（70 条用例）
+│   ├── selfcheck.mjs           门禁体系自检（71 条用例）
 │   └── lib/{manifest,checks,evidence,gate,state,doctor,template,adapter,skill-sync}.mjs
 └── examples/
     ├── single-repo-service/        可运行样例工程（Node 形态）
@@ -130,7 +143,7 @@ devflow-kit/
 ```bash
 npm test                              # 单元测试（纯函数层，43 例，node:test，零依赖）
 bash examples/verify-all.sh           # ★ 一次跑完全部验收（自检 + 六套端到端），交付前跑这个
-node scripts/selfcheck.mjs            # 门禁体系自检：70/70
+node scripts/selfcheck.mjs            # 门禁体系自检：71/71
 bash examples/verify-example.sh       # 端到端（Node 形态，33 条断言）
 bash examples/verify-java-project.sh  # 端到端（Java/Maven 形态，25 条断言）
 bash examples/verify-stacks.sh        # 四栈交叉验收

@@ -1,0 +1,249 @@
+{
+  "kit_version": "1.28.0",
+  "steps": [
+    {
+      "caption": "接入一个仓库：一条命令，拿到门禁与产物规范",
+      "cmd": "devflow init --name demo",
+      "lines": [
+        "devflow init  项目：demo",
+        "  技术栈：未识别（未套用适配器，保留占位脚本）　提示：devflow adapters 可查看支持的栈，或用 --stack 显式指定",
+        "  新建：.devflow/items/、.devflow/.local/、scripts/、.gitignore（追加 devflow 规则）、scripts/build.sh、scripts/build-should-fail.sh、scripts/test.sh、scripts/test-should-fail.sh",
+        "  跳过：devflow.json（已存在，未覆盖；需要覆盖请加 --force）"
+      ],
+      "state": "draft",
+      "gates": []
+    },
+    {
+      "caption": "建一个变更：只需要一句话和档位",
+      "cmd": "devflow new --slug first --tier micro --title '第一个变更'",
+      "lines": [
+        "  状态：.devflow/.local/items/2026-10-21-first（本机，已 gitignore）",
+        "  生成骨架：无（微档不留文档）",
+        "提示：微档只留状态记录，不需要写文档。下一步：devflow gate run <item>",
+        "      微档可直接推进到 released（或只跑门禁即算完成）。"
+      ],
+      "state": "draft",
+      "gates": []
+    },
+    {
+      "caption": "门禁跑一遍：交付条件不满足，直接 BLOCKED",
+      "cmd": "devflow gate run 2026-10-21-first",
+      "lines": [
+        "    ✓                            G0",
+        "    ✓                            G1",
+        "    ✓                            G1b",
+        "    ✓                            G4",
+        "    ✓                            G4b",
+        "    ✓                            G5",
+        "    ✓                            G6",
+        "    ✓                            G7",
+        "  结论：BLOCKED —— 项目门禁:check",
+        "  下一步：",
+        "    · 项目门禁失败：看上方对应门禁的输出尾部定位原因；必要时手动运行该命令复现",
+        "    · 处理完后重跑：devflow gate run 2026-10-21-first"
+      ],
+      "state": "draft",
+      "gates": [
+        {
+          "name": "check",
+          "mark": "✗",
+          "exit": 1
+        },
+        {
+          "name": "G0",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G1",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G1b",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G4",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G4b",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G5",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G6",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G7",
+          "mark": "✓",
+          "exit": null
+        }
+      ]
+    },
+    {
+      "caption": "把缺的东西补上",
+      "cmd": "touch ready.txt        # 真实项目里：修代码 / 补测试 / 补交付物",
+      "lines": [],
+      "state": "draft",
+      "gates": []
+    },
+    {
+      "caption": "再跑一遍：全绿，并且负向对照证明门禁不是恒真",
+      "cmd": "devflow gate run 2026-10-21-first",
+      "lines": [
+        "  项目门禁：",
+        "    ✓                            check      exit=0 负向对照返回 1 且输出含失败证据，门禁可信",
+        "  Kit 门禁：",
+        "    ✓                            G0",
+        "    ✓                            G1",
+        "    ✓                            G1b",
+        "    ✓                            G4",
+        "    ✓                            G4b",
+        "    ✓                            G5",
+        "    ✓                            G6",
+        "    ✓                            G7",
+        "  结论：PASS"
+      ],
+      "state": "draft",
+      "gates": [
+        {
+          "name": "check",
+          "mark": "✓",
+          "exit": 0
+        },
+        {
+          "name": "G0",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G1",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G1b",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G4",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G4b",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G5",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G6",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G7",
+          "mark": "✓",
+          "exit": null
+        }
+      ]
+    },
+    {
+      "caption": "发布：G9 发布前置门禁再验一次，通过才允许 released",
+      "cmd": "devflow advance 2026-10-21-first --to released",
+      "lines": [
+        "已推进  2026-10-21-first → released"
+      ],
+      "state": "released",
+      "gates": []
+    },
+    {
+      "caption": "看一眼 released 目标的判定：G9 发布前置门禁在列",
+      "cmd": "devflow gate run 2026-10-21-first --to released",
+      "lines": [
+        "    ✓                            G2",
+        "    ✓                            G4",
+        "    ✓                            G4b",
+        "    ✓                            G5",
+        "    ✓                            G6",
+        "    ✓                            G7",
+        "    ✓                            G9",
+        "  结论：PASS"
+      ],
+      "state": "released",
+      "gates": [
+        {
+          "name": "check",
+          "mark": "✓",
+          "exit": 0
+        },
+        {
+          "name": "G0",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G1",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G1b",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G2",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G4",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G4b",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G5",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G6",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G7",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G9",
+          "mark": "✓",
+          "exit": null
+        }
+      ]
+    }
+  ]
+}

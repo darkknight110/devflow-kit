@@ -9,6 +9,20 @@
 > **第一次用？直接看 [`docs/00-quickstart.md`](docs/00-quickstart.md)** —— 三条命令装好、从提需求到发版的操作指南。
 > 需要契约判定、看板插件、多仓工作区等增强时，看 [`docs/08-advanced.md`](docs/08-advanced.md)。
 
+## 看它怎么跑（约 15 秒）
+
+![devflow 执行流程演示](docs/demo-flow.gif)
+
+一个变更从建立到发布：门禁不满足 → **BLOCKED**；补齐后再跑 → **PASS**；发布前 **G9** 再验一次。
+图里每一行都是真实命令输出，不是手写台词 —— 可复跑生成：
+
+```bash
+python3 tools/demo/capture_flow.py --out docs/demo-flow.json   # 真跑一遍并采集
+python3 tools/make_flow_gif.py --data docs/demo-flow.json --out docs/demo-flow.gif
+```
+
+<sub>静图版：[docs/demo-flow.png](docs/demo-flow.png)（不支持动图的地方用）。</sub>
+
 ## 先拿到它
 
 ```bash

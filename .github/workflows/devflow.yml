@@ -24,6 +24,20 @@ jobs:
         run: npm test
       - name: 自检
         run: node scripts/selfcheck.mjs
+      - name: 演示素材可重新生成（真跑 → 采集 → 渲染）
+        run: |
+          python3 tools/demo/capture_flow.py --out /tmp/demo.json
+          python3 tools/make_flow_gif.py --data /tmp/demo.json --out /tmp/demo.gif
+          test -s /tmp/demo.gif
+          python3 - <<'PY'
+          import json, os
+          d = json.load(open('/tmp/demo.json'))
+          assert len(d['steps']) >= 5, d
+          assert any(s['gates'] for s in d['steps']), "演示里没有任何门禁结论"
+          assert os.path.getsize('/tmp/demo.gif') > 100_000
+          print("演示素材 OK：", len(d['steps']), "步")
+          PY
+
       - name: 五套端到端（含人的闭环）
         run: bash examples/verify-all.sh
       - name: 提交信息规范（校验 HEAD）

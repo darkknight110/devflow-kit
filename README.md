@@ -9,6 +9,9 @@
 > **第一次用？直接看 [`docs/00-quickstart.md`](docs/00-quickstart.md)** —— 三条命令装好、从提需求到发版的操作指南。
 > 需要契约判定、看板插件、多仓工作区等增强时，看 [`docs/08-advanced.md`](docs/08-advanced.md)。
 
+> **平台**：macOS / Linux（Node ≥ 18，零依赖）。**Windows 未支持**——`bin/devflow` 是 sh 脚本；
+> 需要的话请在 WSL2 里用，安装脚本会直接说明，不会假装装上了。
+
 ## 看它怎么跑（约 7 秒）
 
 [![devflow 执行流程：四格故事板（点击看动图）](docs/demo-flow-story.png)](docs/demo-flow.gif)

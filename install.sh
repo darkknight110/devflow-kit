@@ -16,6 +16,11 @@ BIN="${DEVFLOW_BIN:-$HOME/.local/bin}"
 info() { printf '  %s\n' "$*"; }
 fail() { printf '✗ %s\n' "$*" >&2; exit 1; }
 
+case "$(uname -s 2>/dev/null || echo unknown)" in
+  MINGW*|MSYS*|CYGWIN*)
+    fail "Windows 暂不支持：bin/devflow 是 sh 脚本。请在 WSL2 里运行，或改用 macOS/Linux。" ;;
+esac
+
 command -v git >/dev/null 2>&1 || fail "需要 git（未安装）"
 command -v node >/dev/null 2>&1 || fail "需要 Node.js ≥ 18（未安装）"
 node -e 'const m=process.versions.node.match(/^(\d+)/); if(Number(m[1])<18){console.error("Node "+process.versions.node+" 太旧，需要 ≥18");process.exit(1)}' \

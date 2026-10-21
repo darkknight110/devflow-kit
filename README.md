@@ -9,9 +9,11 @@
 > **第一次用？直接看 [`docs/00-quickstart.md`](docs/00-quickstart.md)** —— 三条命令装好、从提需求到发版的操作指南。
 > 需要契约判定、看板插件、多仓工作区等增强时，看 [`docs/08-advanced.md`](docs/08-advanced.md)。
 
-## 看它怎么跑（约 15 秒）
+## 看它怎么跑（约 11 秒）
 
-![devflow 执行流程演示](docs/demo-flow.gif)
+[![devflow 执行流程：四格故事板（点击看动图）](docs/demo-flow-story.png)](docs/demo-flow.gif)
+
+<sub>**首屏是静图**（四格故事板，最清晰）；**点图看完整动图**（1250×775，约 3MB）。</sub>
 
 一个变更从建立到发布：**草稿 → 需求就绪 → 实现中**（提测时门禁不满足，**被拒**）**→ 待验证 → 已验证 → 已发布**。
 底部状态轨会逐节点亮起；发布前 **G9** 再验一次。轻档只跳过「契约冻结」一个状态——轨道上不会点亮的不是没跑，是**按档位跳过**。
@@ -22,8 +24,7 @@ python3 tools/demo/capture_flow.py --out docs/demo-flow.json   # 真跑一遍并
 python3 tools/make_flow_gif.py --data docs/demo-flow.json --out docs/demo-flow.gif
 ```
 
-<sub>静图版：[docs/demo-flow.png](docs/demo-flow.png)（末帧）· **四格故事板**：[docs/demo-flow-story.png](docs/demo-flow-story.png)（最清晰，适合贴文档/PPT）。
-动图 1200×744、2 倍超采样后缩回，文字边缘不糊；GIF 里每行是真实输出的**截断**（长行以 … 结尾），完整原文见 `docs/demo-flow.json`。
+<sub>末帧静图：[docs/demo-flow.png](docs/demo-flow.png)。动图 2 倍超采样后缩回，文字边缘不糊；GIF 里每行是真实输出的**截断**（长行以 … 结尾），完整原文见 [docs/demo-flow.json](docs/demo-flow.json)。
 生成图需要 Pillow —— **只用于演示渲染**，devflow 本体仍是零依赖。</sub>
 
 ## 先拿到它

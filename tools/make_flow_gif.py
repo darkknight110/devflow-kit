@@ -23,7 +23,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 # 逻辑画布（设计坐标）
 LW, LH = 1000, 620
-SCALE = 1.1      # 输出尺寸 = 逻辑 × SCALE（9 步更长了，1100×682 兼顾清晰与体积）
+SCALE = 1.25     # 输出尺寸 = 逻辑 × SCALE（首屏用 PNG，GIF 可以更大更清晰）
 SS = 2           # 超采样倍数
 K = SCALE * SS   # 绘制时所有尺寸乘 K，最后缩 SS 倍
 

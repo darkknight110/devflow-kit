@@ -2588,15 +2588,24 @@ function sc71() {
   const staleInfo = evaluate(root, itemId, 'released', config);
   const g9stale = verdictOf(staleInfo.results, 'G9');
 
+  // CLI 路径：`gate run --to released` 也必须看到旧记录。
+  // 曾经漏把 STATUS 传进 evaluateGates ⇒ 刚跑绿的 check 被 G9 判成"尚未运行"（演示动画时抓到）。
+  put('pass');
+  const cliPath = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  const cliOut = spawnSync(process.execPath, [cliPath, 'gate', 'run', itemId, '--to', 'released'],
+    { cwd: root, encoding: 'utf8' }).stdout || '';
+  const g9cli = /G9/.test(cliOut) && !/发布前置门禁尚未运行/.test(cliOut);
+
   // 未到 released 时不额外要求（否则每个状态都会被 G9 挡）
   put('fail');
   const midInfo = evaluate(root, itemId, 'verified', config);
   const g9mid = verdictOf(midInfo.results, 'G9');
 
   record('SC71', '发布前置门禁：released 前必须证明通过，⚠ 与旧记录都不算',
-    'pass⇒G9=pass；fail/unverified/记录早于最近修改⇒blocked；非 released 状态不出现 G9',
-    `pass=${g9ok} fail=${g9fail} unverified=${g9warn} stale=${g9stale} verified=${g9mid}`,
-    g9ok === 'pass' && g9fail === 'blocked' && g9warn === 'blocked' && g9stale === 'blocked' && g9mid === 'missing',
+    'pass⇒G9=pass；fail/unverified/记录早于最近修改⇒blocked；CLI 的 gate run 也必须看到记录；非 released 不出现 G9',
+    `pass=${g9ok} fail=${g9fail} unverified=${g9warn} stale=${g9stale} cli=${g9cli} verified=${g9mid}`,
+    g9ok === 'pass' && g9fail === 'blocked' && g9warn === 'blocked' && g9stale === 'blocked'
+      && g9cli === true && g9mid === 'missing',
     failInfo.results.find((r) => r.gate === 'G9')?.notes);
   rmSync(root, { recursive: true, force: true });
 }

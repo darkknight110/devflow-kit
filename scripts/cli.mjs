@@ -872,11 +872,14 @@ function cmdGate(flags, positional) {
   if (flags.to && !kitSpec.states.states[targetState]) {
     die(`未知目标状态：${targetState}\n  可选：${Object.keys(kitSpec.states.states).join(' / ')}`, 2);
   }
+  // 必须把 STATUS.json 传进去：G9（发布前置门禁）读的是上一次门禁运行的记录。
+  // 漏传的后果实测过：`gate run --to released` 会把刚跑绿的 check 判成"尚未运行"。
+  const status = readStatus(itemDir);
   let results;
   try {
     results = evaluateGates({
       projectRoot: root, itemId, itemDir, state: targetState,
-      actualState: state, kitSpec, config: loaded.config, cwd: process.cwd(),
+      actualState: state, kitSpec, config: loaded.config, cwd: process.cwd(), status,
     });
   } catch (error) {
     die(error.message, 4);

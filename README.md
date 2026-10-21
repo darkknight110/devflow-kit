@@ -165,6 +165,10 @@ bash examples/verify-independent.sh   # 独立视角验收：只按文档走一�
 
 ## 相关项目
 
+**[deliverable-check](https://github.com/darkknight110/deliverable-check)** —— 交付前体检：数据表能不能发、方案有多少骨架、稿子改了几轮。
+其中 `audit_data.py` 已按本仓库的门禁协议接入（`run` + `negative_control`），
+示例与验收脚本见 [examples/devflow-gate](https://github.com/darkknight110/deliverable-check/tree/main/examples/devflow-gate)。
+
 **[md-to-office](https://github.com/darkknight110/md-to-office)** —— Markdown → 排版规范的中文 Word(.docx)/PDF。
 
 同一位维护者维护，与 devflow 的「产出交付物」环节配套：devflow 把需求推到发布，最终的方案／报告／验收记录

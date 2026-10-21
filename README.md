@@ -21,7 +21,8 @@ python3 tools/demo/capture_flow.py --out docs/demo-flow.json   # 真跑一遍并
 python3 tools/make_flow_gif.py --data docs/demo-flow.json --out docs/demo-flow.gif
 ```
 
-<sub>静图版：[docs/demo-flow.png](docs/demo-flow.png)（不支持动图的地方用）。</sub>
+<sub>静图版：[docs/demo-flow.png](docs/demo-flow.png)（不支持动图的地方用）。
+生成图需要 Pillow —— **只用于演示渲染**，devflow 本体仍是零依赖。</sub>
 
 ## 先拿到它
 

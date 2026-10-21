@@ -26,6 +26,8 @@ jobs:
         run: node scripts/selfcheck.mjs
       - name: 演示素材可重新生成（真跑 → 采集 → 渲染）
         run: |
+          # Pillow 只用于"把输出画成 GIF"，devflow 本体仍是零依赖
+          python3 -m pip install -q pillow
           python3 tools/demo/capture_flow.py --out /tmp/demo.json
           python3 tools/make_flow_gif.py --data /tmp/demo.json --out /tmp/demo.gif
           test -s /tmp/demo.gif

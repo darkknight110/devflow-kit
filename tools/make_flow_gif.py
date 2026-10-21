@@ -256,13 +256,13 @@ def main() -> int:
     ends = []
     for idx, step in enumerate(steps):
         cmd = step["cmd"]
-        for n in range(0, len(cmd) + 1, 8):
+        for n in range(0, len(cmd) + 1, 12):
             frames.append(frame(step, idx, total, cmd[:n], []))
         shown = []
         for line in step["lines"]:
             shown = shown + [line]
             frames.append(frame(step, idx, total, cmd, shown))
-        for _ in range(6):
+        for _ in range(3):
             frames.append(frame(step, idx, total, cmd, shown))
         ends.append(len(frames) - 1)
 

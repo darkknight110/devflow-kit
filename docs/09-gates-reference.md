@@ -154,6 +154,6 @@
 - **读机器正典**：`spec/gates.json`（判定、层级、检查项、证据字段、版本）。
 - **只想要判据**：把本文第四节整段贴进你的 `CONTRIBUTING.md` 或 agent 指令文件。
 - **想要可执行版本**：`devflow init` 后 `devflow doctor`，把 D1–D4 当作"门禁自检"。
-- **改判据**：改 `spec/gates.json` 并同步本文；`test/` 下有对应单测，`scripts/selfcheck.mjs` 有对应端到端用例（SC1–SC71）。
+- **改判据**：改 `spec/gates.json` 并同步本文；`test/` 下有对应单测，`scripts/selfcheck.mjs` 有对应端到端用例（SC1–SC72）。
 
-> 版本：1.27.1　对应 `spec/gates.json` 的 `version` 字段。
+> 版本：1.28.0　对应 `spec/gates.json` 的 `version` 字段。

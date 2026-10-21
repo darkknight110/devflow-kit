@@ -55,6 +55,15 @@ cd <你的项目>
 ```
 
 声明后，`advance --to released` 会**先现跑一遍门禁**；任一声明门禁没有 pass 记录（失败、未验证、豁免都算）就拒绝发布。
+
+**新项目一条命令接好**（需要先装 [deliverable-check](https://github.com/darkknight110/deliverable-check)）：
+
+```bash
+devflow init --with-preflight
+```
+
+它会生成 `scripts/preflight-gate.sh` 与 `preflight-should-fail.sh`（负向对照现场造一张脏表），
+把 `preflight` 门禁写进 `devflow.json` 并加入 `release.requires`——**数据没体检过，就发不出去**。
 判据与反例见 [`docs/09-gates-reference.md`](docs/09-gates-reference.md#g9-发布前置门禁阻断)。
 
 **逐命令帮助**：`devflow help <命令>` 或 `devflow <命令> --help`。
@@ -111,7 +120,7 @@ devflow-kit/
 │   └── roles.json              角色权限矩阵与确认点
 ├── scripts/
 │   ├── cli.mjs                 命令行装配层
-│   ├── selfcheck.mjs           门禁体系自检（71 条用例）
+│   ├── selfcheck.mjs           门禁体系自检（72 条用例）
 │   └── lib/{manifest,checks,evidence,gate,state,doctor,template,adapter,skill-sync}.mjs
 └── examples/
     ├── single-repo-service/        可运行样例工程（Node 形态）
@@ -143,7 +152,7 @@ devflow-kit/
 ```bash
 npm test                              # 单元测试（纯函数层，43 例，node:test，零依赖）
 bash examples/verify-all.sh           # ★ 一次跑完全部验收（自检 + 六套端到端），交付前跑这个
-node scripts/selfcheck.mjs            # 门禁体系自检：71/71
+node scripts/selfcheck.mjs            # 门禁体系自检：72/72
 bash examples/verify-example.sh       # 端到端（Node 形态，33 条断言）
 bash examples/verify-java-project.sh  # 端到端（Java/Maven 形态，25 条断言）
 bash examples/verify-stacks.sh        # 四栈交叉验收

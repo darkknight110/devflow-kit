@@ -60,6 +60,7 @@ cd <你的项目>
 | **kit 位置记录**（`~/.dsh/devflow.json`） | **用户级** | 一次 | 同上 |
 | **git 提交钩子**（`.git/hooks/commit-msg`） | **每个 git 仓** | 每个仓一次 | 在项目里 `devflow setup --project` |
 | **项目接入**（`devflow.json` / 门禁脚本） | **每个仓** | 每个仓一次 | 在项目里 `devflow init` |
+| **顺带接入交付体检** | **每个仓** | 每个仓一次 | `devflow init --with-preflight`（需 deliverable-check；生成发布前置门禁） |
 
 ```bash
 # 只做一次（跨所有项目）

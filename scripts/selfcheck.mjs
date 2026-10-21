@@ -2601,12 +2601,44 @@ function sc71() {
   rmSync(root, { recursive: true, force: true });
 }
 
+/**
+ * SC72：`init --with-preflight` 必须真的把交付体检接成发布前置门禁。
+ * 依据：模板化的价值在于"默认就有"；如果只是打印一句提示，等于没接。
+ */
+function sc72() {
+  const root = tmpProject('with-preflight');
+  const cli = path.join(KIT_ROOT, 'scripts', 'cli.mjs');
+  const run = () => spawnSync(process.execPath, [cli, 'init', '--name', 'wp', '--stack', 'node-jest', '--with-preflight'],
+    { cwd: root, encoding: 'utf8' });
+  run();
+  const cfgPath = path.join(root, 'devflow.json');
+  const cfg = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  const gateOk = Boolean(cfg.gates?.preflight?.run && cfg.gates?.preflight?.negative_control);
+  const relOk = (cfg.release?.requires || []).includes('preflight');
+  const scriptsOk = ['scripts/preflight-gate.sh', 'scripts/preflight-should-fail.sh']
+    .every((f) => existsSync(path.join(root, f)));
+
+  // 幂等：再跑一次不得重复登记，也不得覆盖已改过的脚本
+  writeFileSync(path.join(root, 'scripts', 'preflight-gate.sh'), '#!/usr/bin/env bash\nexit 0\n', { mode: 0o755 });
+  run();
+  const cfg2 = JSON.parse(readFileSync(cfgPath, 'utf8'));
+  const dup = (cfg2.release?.requires || []).filter((x) => x === 'preflight').length;
+  const kept = readFileSync(path.join(root, 'scripts', 'preflight-gate.sh'), 'utf8').includes('exit 0');
+
+  record('SC72', 'init --with-preflight 把交付体检接成发布前置门禁',
+    '生成两个脚本、登记 preflight 门禁与 release.requires；重复执行不重复登记、不覆盖已有脚本',
+    `门禁=${gateOk} release=${relOk} 脚本=${scriptsOk} 重复登记=${dup} 保留自定义=${kept}`,
+    gateOk && relOk && scriptsOk && dup === 1 && kept);
+  rmSync(root, { recursive: true, force: true });
+}
+
   sc65();
   sc66();
   sc67();
   sc68();
   sc70();
   sc71();
+  sc72();
   sc69();
   return {
     kitRoot: KIT_ROOT,

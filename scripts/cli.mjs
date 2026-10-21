@@ -563,6 +563,82 @@ exit 1
       skipped.push(`${rel}（已存在）`);
     }
   }
+  // ── --with-preflight：把"交付前体检"接成发布前置门禁 ──
+  // 为什么放在 init：新项目最需要的是"默认就有"，而不是"看文档再手抄两份脚本"。
+  // 只做三件事：装两个包装脚本 + 在 devflow.json 声明门禁 + 加进 release.requires。
+  // 工具本体（preflight.py）不复制进项目：按 PREFLIGHT_HOME 或常见技能目录解析。
+  if (flags['with-preflight']) {
+    const resolveFn = `resolve_preflight() {
+  for c in "\${PREFLIGHT_HOME:-}/tools/preflight.py" "tools/preflight.py" \\
+           "$HOME/.dsh/skills/deliverable-check/tools/preflight.py" \\
+           "$HOME/.claude/skills/deliverable-check/tools/preflight.py"; do
+    [ -f "$c" ] && { printf '%s' "$c"; return 0; }
+  done
+  return 1
+}`;
+    const gateScripts = {
+      'scripts/preflight-gate.sh': `#!/usr/bin/env bash
+# 交付前体检门禁：0 = 可交付；1 = 有阻断。
+# 用法：./scripts/preflight-gate.sh <交付目录或文件...>（默认 "交付"）
+set -uo pipefail
+${resolveFn}
+TOOL="$(resolve_preflight)"
+if [ -z "$TOOL" ]; then
+  echo "[devflow] 找不到 preflight.py：先装 deliverable-check" >&2
+  echo "  git clone https://github.com/darkknight110/deliverable-check.git ~/.dsh/skills/deliverable-check" >&2
+  echo "  （或设置 PREFLIGHT_HOME 指向它）" >&2
+  echo "FAIL preflight tool missing" >&2
+  exit 2
+fi
+TARGET="\${1:-交付}"
+if [ ! -e "$TARGET" ]; then
+  echo "[devflow] 交付目录不存在：$TARGET（把它改成你真正的交付目录）" >&2
+  echo "FAIL preflight target missing" >&2
+  exit 2
+fi
+exec python3 "$TOOL" "$TARGET"
+`,
+      'scripts/preflight-should-fail.sh': `#!/usr/bin/env bash
+# 负向对照：现场造一张脏表，preflight 必须判"不可交付"。
+# 为什么要现场造：交付目录里通常没有"应该失败的样本"，但门禁必须被证明不是恒真。
+set -uo pipefail
+${resolveFn}
+TOOL="$(resolve_preflight)"
+if [ -z "$TOOL" ]; then
+  echo "FAIL preflight tool missing" >&2
+  exit 2
+fi
+FIXTURE="$(dirname "$TOOL")/make_dirty_fixture.py"
+DIRTY=".devflow/preflight-dirty.xlsx"
+mkdir -p .devflow
+python3 "$FIXTURE" --out "$DIRTY" >/dev/null || { echo "FAIL 脏样本生成失败" >&2; exit 2; }
+python3 "$TOOL" "$DIRTY"
+`,
+    };
+    for (const [rel, content] of Object.entries(gateScripts)) {
+      const full = path.join(root, rel);
+      if (!existsSync(full)) {
+        writeFileSync(full, content, { mode: 0o755 });
+        created.push(rel);
+      } else {
+        skipped.push(`${rel}（已存在）`);
+      }
+    }
+    config.gates = config.gates || {};
+    if (!config.gates.preflight) {
+      config.gates.preflight = {
+        run: './scripts/preflight-gate.sh 交付',
+        negative_control: './scripts/preflight-should-fail.sh',
+      };
+      config.release = config.release || {};
+      config.release.requires = Array.from(new Set([...(config.release.requires || []), 'preflight']));
+      writeFileSync(configPath, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+      created.push('devflow.json（登记 preflight 门禁 + release.requires）');
+    } else {
+      skipped.push('devflow.json（已登记 preflight 门禁）');
+    }
+  }
+
   // 应用适配器：只补缺失的脚本与门禁声明，绝不覆盖
   let adapterResult = null;
   if (stackId && adapters[stackId]) {

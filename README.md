@@ -262,6 +262,11 @@ bash examples/verify-independent.sh   # 独立视角验收：只按文档走一�
 
 ---
 
+## 延伸阅读
+
+- [AI 写的方案怎么验收？用门禁，不用感觉](docs/articles/ai-delivery-gates.md)
+  —— 四类可机械验证的东西、五条真实翻车写法、以及为什么发布要单独设一道闸。
+
 ## 相关项目
 
 **[deliverable-check](https://github.com/darkknight110/deliverable-check)** —— 交付前体检：数据表能不能发、方案有多少骨架、稿子改了几轮。

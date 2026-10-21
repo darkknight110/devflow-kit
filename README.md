@@ -27,6 +27,14 @@ python3 tools/make_flow_gif.py --data docs/demo-flow.json --out docs/demo-flow.g
 <sub>末帧静图：[docs/demo-flow.png](docs/demo-flow.png)。动图 2 倍超采样后缩回，文字边缘不糊；GIF 里每行是真实输出的**截断**（长行以 … 结尾），完整原文见 [docs/demo-flow.json](docs/demo-flow.json)。
 生成图需要 Pillow —— **只用于演示渲染**，devflow 本体仍是零依赖。</sub>
 
+> **同一套三件工具**（可单独用，也可以串起来）：
+>
+> - **[md-to-office](https://github.com/darkknight110/md-to-office)** —— 把 Markdown 变成能发出去的 Word/PDF（真框图、公文模板）
+> - **[deliverable-check](https://github.com/darkknight110/deliverable-check)** —— 发出去之前体检：数据会不会被算错、方案骨架够不够
+> - **[devflow-kit](https://github.com/darkknight110/devflow-kit)** —— 让「能不能发布」由门禁决定，而不是靠感觉
+>
+> 三个都是 MIT、本地运行；本文是 **devflow-kit** 的完整操作指南（安装 → 走一遍 → 排错）。
+
 ## 先拿到它
 
 ```bash
@@ -57,7 +65,47 @@ cd <你的项目>
 ~/.devflow-kit/bin/devflow setup      # 装本地提交钩子 + 装 DSH 聊天技能
 ```
 
-## 十分钟上手（技术栈按 pom.xml/package.json/pyproject.toml/go.mod 自动识别）
+## 5 分钟走一遍（复制即用）
+
+```bash
+# 1) 装（克隆到 ~/.devflow-kit，并链接 devflow 到 ~/.local/bin）
+curl -fsSL https://raw.githubusercontent.com/darkknight110/devflow-kit/main/install.sh | sh
+
+# 2) 在任意项目里接入
+cd 你的项目
+devflow init --name 你的项目
+devflow doctor
+```
+
+**期望**：`doctor` 给出结论——要么「可以开工」，要么逐条列出「哪条门禁不可信 + 怎么修」。
+**它不会在门禁恒真时告诉你"没问题"。**
+
+```bash
+# 3) 建第一个变更
+devflow new --slug first --tier light --title "第一个变更"
+
+# 4) 按模板补齐产物（把占位符换成真实判据）
+devflow fill <上一步输出的变更 id> --to spec_ready
+
+# 5) 推进 / 跑门禁
+devflow advance <变更 id> --to spec_ready
+devflow gate run <变更 id>
+```
+
+**期望**：`advance` 在缺件时拒绝；`gate run` 每条门禁都带**命令原文 + 退出码 + 输出尾部**。
+推不动时它会说清楚缺什么，而不是一句「失败」。
+
+### 排错
+
+| 现象 | 原因 | 处理 |
+|---|---|---|
+| `devflow: command not found` | `~/.local/bin` 不在 PATH | `export PATH="$HOME/.local/bin:$PATH"`（写进 `~/.zshrc`） |
+| `需要 Node.js ≥ 18` | Node 版本旧 | `nvm install 18 && nvm use 18` |
+| `doctor` 说「门禁不可信」 | 门禁恒真 / 缺负向对照 / 占位脚本 | 按 doctor 列出的修法逐条改，再跑一次 |
+| `--no-run` 也推不动 `released` | G9 要求发布前置门禁**现跑**且记录新鲜 | 去掉 `--no-run`，或先 `gate run` |
+| 提交信息被拒 | 提交规范：`type(scope): 摘要` | 看报错里的规范，≤72 字、正文 ≤3 条 |
+
+## 命令速查（技术栈按 pom.xml/package.json/pyproject.toml/go.mod 自动识别）
 
 ```bash
 ./bin/devflow init --name my-project --stack java-maven   # 不写 --stack 也能自动识别

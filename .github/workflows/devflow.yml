@@ -47,6 +47,18 @@ jobs:
           print("演示素材 OK：", len(d['steps']), "步")
           PY
 
+      - name: 演示素材新鲜度（仓库里的 JSON/GIF 与 VERSION 一致）
+        run: |
+          node -e "
+            const fs=require('fs');
+            const v=fs.readFileSync('VERSION','utf8').trim();
+            const d=JSON.parse(fs.readFileSync('docs/demo-flow.json','utf8'));
+            if(d.kit_version!==v) throw new Error('演示数据版本 '+d.kit_version+' != VERSION '+v+'（需要重新采集）');
+            if(d.steps.length<5) throw new Error('演示步骤过少');
+            if(fs.statSync('docs/demo-flow.gif').size<100000) throw new Error('GIF 太小');
+            console.log('演示数据新鲜：'+v+'，'+d.steps.length+' 步');
+          "
+
       - name: 五套端到端（含人的闭环）
         run: bash examples/verify-all.sh
       - name: 提交信息规范（校验 HEAD）

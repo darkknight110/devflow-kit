@@ -77,6 +77,136 @@ def gates_of(text: str) -> list[dict]:
     return out
 
 
+
+
+# ─────────── 演示用的最小有效产物（内容真实，但都是示例数据） ───────────
+
+SPEC_MD = """# SPEC · 接入登录
+
+## 身份
+
+| 键 | 值 |
+|---|---|
+| item | flow |
+| tier | light |
+| owner | 张三 |
+| repos | demo |
+| change_surface | ui |
+
+## 验收标准
+
+| AC | 判据 | 判据类型 | 责任方 |
+|---|---|---|---|
+| AC-1 | `./scripts/check.sh` 退出码 0 | 命令 | 后端 |
+| AC-2 | 登录页可提交，错误提示可读 | 画面 | 前端 |
+
+## 不做什么
+
+| 项 | 说明 |
+|---|---|
+| 不做注册 | 本期只做登录 |
+"""
+
+CODING_MD = """# 实现报告
+
+## 改了什么
+
+| 文件 | 说明 |
+|---|---|
+| src/login.js | 新增登录表单校验 |
+
+## 涉及提交
+
+| 提交 | 说明 |
+|---|---|
+| a1b2c3d | feat: 登录表单 |
+"""
+
+VERIFY_MD = """# 验证记录
+
+## 逐条对照
+
+| AC | 结论 | 证据 |
+|---|---|---|
+| AC-1 | 通过 | ./scripts/check.sh exit=0 |
+| AC-2 | 通过 | 截图 2026-10-21 |
+
+## 结论
+
+通过。
+
+## 证据
+
+| 项 | 内容 |
+|---|---|
+| 命令 | ./scripts/check.sh |
+| 退出码 | 0 |
+
+## 未验证项
+
+| 未验证项 | 原因 | 如何补验证 | 是否接受风险 |
+|---|---|---|---|
+| 无 | — | — | 接受 |
+"""
+
+APPROVALS_MD = """# 确认记录
+
+## 确认记录
+
+| 确认点 | 确认人 | 时间 | 结论 | 内容指纹 |
+|---|---|---|---|---|
+| 需求与判据 | 张三 | 2026-10-21T10:00:00+08:00 | 通过 |  |
+"""
+
+RELEASE_MD = """# 发布报告
+
+## 发布内容
+
+| 项 | 内容 |
+|---|---|
+| 变更 | 接入登录 |
+| 版本 | v1.0.0 |
+
+## 验证证据
+
+| 项 | 内容 |
+|---|---|
+| 门禁 | exit=0 |
+| 验证记录 | verification.md |
+
+## 观察窗口
+
+| 项 | 时长 |
+|---|---|
+| 观察期 | 48 小时 |
+"""
+
+
+def write(work: str, item: str, rel: str, content: str) -> None:
+    path = os.path.join(work, ".devflow", "items", item, rel)
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(content)
+
+
+def latest_item(work: str) -> str:
+    d = os.path.join(work, ".devflow", ".local", "items")
+    return sorted(os.listdir(d))[-1] if os.path.isdir(d) else "2026-01-01-flow"
+
+
+def step(caption: str, cmd: str, text: str, state: str, n: int, gates=None) -> dict:
+    return {"caption": caption, "cmd": cmd, "lines": tail_lines(text, n), "state": state,
+            "gates": gates if gates is not None else gates_of(text)}
+
+
+def fresh_gates(work: str, item: str) -> list:
+    """advance 成功时输出里没有门禁结论，所以另跑一次 gate run 取**当前**结论。
+
+    不能"沿用上一次"：那会把"提测被拒时的 ✗"一路带到发布成功之后（实测踩到）。
+    """
+    return gates_of(run(f"{DEVFLOW} gate run {item}", work))
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--out", required=True)
@@ -91,78 +221,67 @@ def main() -> int:
     try:
         with open(os.path.join(work, "devflow.json"), "w", encoding="utf-8") as fh:
             json.dump(CONFIG, fh, ensure_ascii=False, indent=2)
-
-        # 0. 接入仓库（有 .devflow/ 才不是"仅凭 devflow.json 判定"）
-        text = run(f"{DEVFLOW} init --name demo", work)
-        steps.append({
-            "caption": "接入一个仓库：一条命令，拿到门禁与产物规范",
-            "cmd": "devflow init --name demo",
-            "lines": [l for l in text.splitlines() if l.strip()][:4],
-            "state": "draft",
-            "gates": gates_of(text),
-        })
-
-        # 1. 建变更（微档，专注演示门禁）
-        cmd = "devflow new --slug first --tier micro --title '第一个变更'"
-        text = run(f"{DEVFLOW} new --slug first --tier micro --title '第一个变更'", work)
-        items_dir = os.path.join(work, ".devflow", ".local", "items")
-        item = sorted(os.listdir(items_dir))[-1] if os.path.isdir(items_dir) else "2026-01-01-first"
-        steps.append({
-            "caption": "建一个变更：只需要一句话和档位",
-            "cmd": cmd,
-            "lines": tail_lines(text, 4),
-            "state": "draft",
-            "gates": gates_of(text),
-        })
-
-        # 2. 门禁没通过：拒绝推进（这里 ready.txt 还不存在）
-        text = run(f"{DEVFLOW} gate run {item}", work)
-        steps.append({
-            "caption": "门禁跑一遍：交付条件不满足，直接 BLOCKED",
-            "cmd": f"devflow gate run {item}",
-            "lines": tail_lines(text, 12),
-            "state": "draft",
-            "gates": gates_of(text),
-        })
-
-        # 3. 修好（演示里就是补齐那个文件）
+        # 门禁的"交付条件"：先满足，后面在第 5 步故意破坏它，演示"拒绝提测"
         open(os.path.join(work, "ready.txt"), "w").close()
-        steps.append({
-            "caption": "把缺的东西补上",
-            "cmd": "touch ready.txt        # 真实项目里：修代码 / 补测试 / 补交付物",
-            "lines": [],
-            "state": "draft",
-            "gates": [],
-        })
 
-        # 4. 再跑门禁：全绿
-        text = run(f"{DEVFLOW} gate run {item}", work)
-        steps.append({
-            "caption": "再跑一遍：全绿，并且负向对照证明门禁不是恒真",
-            "cmd": f"devflow gate run {item}",
-            "lines": tail_lines(text, 12),
-            "state": "draft",
-            "gates": gates_of(text),
-        })
+        # 0. 接入仓库
+        text = run(f"{DEVFLOW} init --name demo", work)
+        steps.append(step("接入一个仓库：一条命令，拿到门禁与产物规范",
+                          "devflow init --name demo", text, "draft", 4))
 
-        # 5. 发布：G9 会在 released 前再验一次
+        # 1. 建变更（轻档：会真的走过 5 个状态）
+        text = run(f"{DEVFLOW} new --slug flow --tier light --title '接入登录'", work)
+        item = latest_item(work)
+        steps.append(step("建一个变更：一句话 + 档位（轻档只跳过一个状态）",
+                          "devflow new --slug flow --tier light --title '接入登录'", text, "draft", 4))
+
+        # 2. 按模板补齐 SPEC，再把占位符换成真实判据
+        text = run(f"{DEVFLOW} fill {item} --to spec_ready", work)
+        write(work, item, "SPEC.md", SPEC_MD)
+        steps.append(step("按模板补齐 SPEC，再把占位符换成可验收的判据",
+                          f"devflow fill {item} --to spec_ready", text, "draft", 4))
+
+        # 3. → spec_ready
+        text = run(f"{DEVFLOW} advance {item} --to spec_ready", work)
+        steps.append(step("需求就绪：判据冻结，之后才允许动代码",
+                          f"devflow advance {item} --to spec_ready", text, "spec_ready", 3,
+                          fresh_gates(work, item)))
+
+        # 4. → implementing
+        text = run(f"{DEVFLOW} advance {item} --to implementing", work)
+        steps.append(step("进入实现：契约可跳过（轻档），但门禁一直有效",
+                          f"devflow advance {item} --to implementing", text, "implementing", 3,
+                          fresh_gates(work, item)))
+
+        # 5. 门禁没过：提测被拒
+        os.remove(os.path.join(work, "ready.txt"))
+        text = run(f"{DEVFLOW} advance {item} --to tested", work)
+        steps.append(step("自动跑门禁：交付条件不满足，提测被拒绝",
+                          f"devflow advance {item} --to tested", text, "implementing", 8))  # 这里是失败，输出里自带 ✗
+
+        # 6. 修好 → tested
+        open(os.path.join(work, "ready.txt"), "w").close()
+        write(work, item, "coding_report.md", CODING_MD)
+        text = run(f"{DEVFLOW} advance {item} --to tested", work)
+        steps.append(step("修好之后重跑：门禁通过，进入待验证",
+                          f"devflow advance {item} --to tested", text, "tested", 4,
+                          fresh_gates(work, item)))
+
+        # 7. 验证记录 + 确认记录 → verified
+        write(work, item, "verification.md", VERIFY_MD)
+        write(work, item, "APPROVALS.md", APPROVALS_MD)
+        text = run(f"{DEVFLOW} advance {item} --to verified", work)
+        steps.append(step("逐条对照 + 确认记录齐了，才算已验证",
+                          f"devflow advance {item} --to verified", text, "verified", 4,
+                          fresh_gates(work, item)))
+
+        # 8. 发布报告 → released（G9 再验一次）
+        write(work, item, "release/report.md", RELEASE_MD)
         text = run(f"{DEVFLOW} advance {item} --to released", work)
-        steps.append({
-            "caption": "发布：G9 发布前置门禁再验一次，通过才允许 released",
-            "cmd": f"devflow advance {item} --to released",
-            "lines": tail_lines(text, 4),
-            "state": "released",
-            "gates": gates_of(text),
-        })
-        # 6. 显式看 released 目标的门禁：G9 在列
-        text = run(f"{DEVFLOW} gate run {item} --to released", work)
-        steps.append({
-            "caption": "看一眼 released 目标的判定：G9 发布前置门禁在列",
-            "cmd": f"devflow gate run {item} --to released",
-            "lines": tail_lines(text, 8),
-            "state": "released",
-            "gates": gates_of(text),
-        })
+        steps.append(step("发布：G9 发布前置门禁再验一次，通过才允许 released",
+                          f"devflow advance {item} --to released", text, "released", 4,
+                          fresh_gates(work, item)))
+
     finally:
         shutil.rmtree(work, ignore_errors=True)
 

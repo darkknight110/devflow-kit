@@ -5,49 +5,50 @@
       "caption": "接入一个仓库：一条命令，拿到门禁与产物规范",
       "cmd": "devflow init --name demo",
       "lines": [
-        "devflow init  项目：demo",
-        "  技术栈：未识别（未套用适配器，保留占位脚本）　提示：devflow adapters 可查看支持的栈，或用 --stack 显式指定",
-        "  新建：.devflow/items/、.devflow/.local/、scripts/、.gitignore（追加 devflow 规则）、scripts/build.sh、scripts/build-should-fail.sh、scripts/test.sh、scripts/test-should-fail.sh",
-        "  跳过：devflow.json（已存在，未覆盖；需要覆盖请加 --force）"
+        "  2) 编辑 devflow.json 与 scripts/*.sh，换成你项目的真实命令",
+        "  3) 让 scripts/*-should-fail.sh 保持失败（负向对照，证明门禁不是恒真）",
+        "  4) devflow doctor 再来一次，直到结论是\"可以开工\"",
+        "  5) devflow new --slug <变更名> --tier light --title \"<标题>\""
       ],
       "state": "draft",
       "gates": []
     },
     {
-      "caption": "建一个变更：只需要一句话和档位",
-      "cmd": "devflow new --slug first --tier micro --title '第一个变更'",
+      "caption": "建一个变更：一句话 + 档位（轻档只跳过一个状态）",
+      "cmd": "devflow new --slug flow --tier light --title '接入登录'",
       "lines": [
-        "  状态：.devflow/.local/items/2026-10-21-first（本机，已 gitignore）",
-        "  生成骨架：无（微档不留文档）",
-        "提示：微档只留状态记录，不需要写文档。下一步：devflow gate run <item>",
-        "      微档可直接推进到 released（或只跑门禁即算完成）。"
+        "  产物：.devflow/items/2026-10-21-flow（入库）",
+        "  状态：.devflow/.local/items/2026-10-21-flow（本机，已 gitignore）",
+        "  生成骨架：SPEC.md、coding_report.md、verification.md、APPROVALS.md",
+        "提示：先填 SPEC 的验收标准表（每条 AC 必须有判据与判据类型），再往下走。"
       ],
       "state": "draft",
       "gates": []
     },
     {
-      "caption": "门禁跑一遍：交付条件不满足，直接 BLOCKED",
-      "cmd": "devflow gate run 2026-10-21-first",
+      "caption": "按模板补齐 SPEC，再把占位符换成可验收的判据",
+      "cmd": "devflow fill 2026-10-21-flow --to spec_ready",
       "lines": [
-        "    ✓                            G0",
-        "    ✓                            G1",
-        "    ✓                            G1b",
-        "    ✓                            G4",
-        "    ✓                            G4b",
-        "    ✓                            G5",
-        "    ✓                            G6",
-        "    ✓                            G7",
-        "  结论：BLOCKED —— 项目门禁:check",
-        "  下一步：",
-        "    · 项目门禁失败：看上方对应门禁的输出尾部定位原因；必要时手动运行该命令复现",
-        "    · 处理完后重跑：devflow gate run 2026-10-21-first"
+        "  档位：轻（light）",
+        "  未写入任何文件",
+        "  提示：模板里是结构化占位，**必须填真实内容**再推进；引擎会校验章节与表格列。",
+        "  下一步：devflow advance 2026-10-21-flow --to spec_ready --check"
       ],
       "state": "draft",
+      "gates": []
+    },
+    {
+      "caption": "需求就绪：判据冻结，之后才允许动代码",
+      "cmd": "devflow advance 2026-10-21-flow --to spec_ready",
+      "lines": [
+        "已推进  2026-10-21-flow → spec_ready"
+      ],
+      "state": "spec_ready",
       "gates": [
         {
           "name": "check",
-          "mark": "✗",
-          "exit": 1
+          "mark": "✓",
+          "exit": 0
         },
         {
           "name": "G0",
@@ -61,6 +62,141 @@
         },
         {
           "name": "G1b",
+          "mark": "⚠",
+          "exit": null
+        },
+        {
+          "name": "G4",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G4b",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G5",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G6",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G7",
+          "mark": "✓",
+          "exit": null
+        }
+      ]
+    },
+    {
+      "caption": "进入实现：契约可跳过（轻档），但门禁一直有效",
+      "cmd": "devflow advance 2026-10-21-flow --to implementing",
+      "lines": [
+        "已推进  2026-10-21-flow → implementing"
+      ],
+      "state": "implementing",
+      "gates": [
+        {
+          "name": "check",
+          "mark": "✓",
+          "exit": 0
+        },
+        {
+          "name": "G0",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G1",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G1b",
+          "mark": "⚠",
+          "exit": null
+        },
+        {
+          "name": "G4",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G4b",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G5",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G6",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G7",
+          "mark": "✓",
+          "exit": null
+        }
+      ]
+    },
+    {
+      "caption": "自动跑门禁：交付条件不满足，提测被拒绝",
+      "cmd": "devflow advance 2026-10-21-flow --to tested",
+      "lines": [
+        "拒绝推进  2026-10-21-flow → tested",
+        "  已自动执行项目门禁，但未通过：",
+        "    ✗ 失败 check  exit=1",
+        "  下一步：",
+        "    · 看上面的输出尾部定位失败原因；必要时手动运行该命令复现",
+        "    · 只跑门禁不推进：devflow gate run 2026-10-21-flow"
+      ],
+      "state": "implementing",
+      "gates": [
+        {
+          "name": "check",
+          "mark": "✗",
+          "exit": 1
+        }
+      ]
+    },
+    {
+      "caption": "修好之后重跑：门禁通过，进入待验证",
+      "cmd": "devflow advance 2026-10-21-flow --to tested",
+      "lines": [
+        "已推进  2026-10-21-flow → tested"
+      ],
+      "state": "tested",
+      "gates": [
+        {
+          "name": "check",
+          "mark": "✓",
+          "exit": 0
+        },
+        {
+          "name": "G0",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G1",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G1b",
+          "mark": "⚠",
+          "exit": null
+        },
+        {
+          "name": "G2",
           "mark": "✓",
           "exit": null
         },
@@ -92,30 +228,12 @@
       ]
     },
     {
-      "caption": "把缺的东西补上",
-      "cmd": "touch ready.txt        # 真实项目里：修代码 / 补测试 / 补交付物",
-      "lines": [],
-      "state": "draft",
-      "gates": []
-    },
-    {
-      "caption": "再跑一遍：全绿，并且负向对照证明门禁不是恒真",
-      "cmd": "devflow gate run 2026-10-21-first",
+      "caption": "逐条对照 + 确认记录齐了，才算已验证",
+      "cmd": "devflow advance 2026-10-21-flow --to verified",
       "lines": [
-        "  项目门禁：",
-        "    ✓                            check      exit=0 负向对照返回 1 且输出含失败证据，门禁可信",
-        "  Kit 门禁：",
-        "    ✓                            G0",
-        "    ✓                            G1",
-        "    ✓                            G1b",
-        "    ✓                            G4",
-        "    ✓                            G4b",
-        "    ✓                            G5",
-        "    ✓                            G6",
-        "    ✓                            G7",
-        "  结论：PASS"
+        "已推进  2026-10-21-flow → verified"
       ],
-      "state": "draft",
+      "state": "verified",
       "gates": [
         {
           "name": "check",
@@ -134,6 +252,11 @@
         },
         {
           "name": "G1b",
+          "mark": "✓",
+          "exit": null
+        },
+        {
+          "name": "G2",
           "mark": "✓",
           "exit": null
         },
@@ -166,25 +289,9 @@
     },
     {
       "caption": "发布：G9 发布前置门禁再验一次，通过才允许 released",
-      "cmd": "devflow advance 2026-10-21-first --to released",
+      "cmd": "devflow advance 2026-10-21-flow --to released",
       "lines": [
-        "已推进  2026-10-21-first → released"
-      ],
-      "state": "released",
-      "gates": []
-    },
-    {
-      "caption": "看一眼 released 目标的判定：G9 发布前置门禁在列",
-      "cmd": "devflow gate run 2026-10-21-first --to released",
-      "lines": [
-        "    ✓                            G2",
-        "    ✓                            G4",
-        "    ✓                            G4b",
-        "    ✓                            G5",
-        "    ✓                            G6",
-        "    ✓                            G7",
-        "    ✓                            G9",
-        "  结论：PASS"
+        "已推进  2026-10-21-flow → released"
       ],
       "state": "released",
       "gates": [

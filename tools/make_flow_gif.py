@@ -23,7 +23,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 # 逻辑画布（设计坐标）
 LW, LH = 1000, 620
-SCALE = 1.2      # 输出尺寸 = 逻辑 × SCALE（1.2 → 1200×744，够清晰又不至于太大）
+SCALE = 1.1      # 输出尺寸 = 逻辑 × SCALE（9 步更长了，1100×682 兼顾清晰与体积）
 SS = 2           # 超采样倍数
 K = SCALE * SS   # 绘制时所有尺寸乘 K，最后缩 SS 倍
 
@@ -222,9 +222,10 @@ def frame(step, idx, total, typed, shown_lines):
     return img.resize((int(LW * SCALE), int(LH * SCALE)), Image.LANCZOS)
 
 
-def storyboard(frames, out_png):
-    """四格故事板：比 GIF 清晰，文档里用。"""
-    picks = [frames[int(len(frames) * r)] for r in (0.18, 0.52, 0.72, 0.98)]
+def storyboard(frames, out_png, ends):
+    """四格故事板：取第 2/5/7/9 步的**末帧**（输出已完整），比按比例抽帧可靠。"""
+    want = [1, 5, 6, 8]   # 建变更 / 提测被拒 / 待验证 / 已发布
+    picks = [frames[ends[i]] for i in want if i < len(ends)]
     w, h = picks[0].size
     gap = int(12 * SCALE)
     canvas = Image.new("RGB", (w * 2 + gap, h * 2 + gap), (237, 240, 244))
@@ -252,6 +253,7 @@ def main() -> int:
     steps = DATA["steps"]
     total = len(steps)
     frames = []
+    ends = []
     for idx, step in enumerate(steps):
         cmd = step["cmd"]
         for n in range(0, len(cmd) + 1, 8):
@@ -260,8 +262,9 @@ def main() -> int:
         for line in step["lines"]:
             shown = shown + [line]
             frames.append(frame(step, idx, total, cmd, shown))
-        for _ in range(7):
+        for _ in range(6):
             frames.append(frame(step, idx, total, cmd, shown))
+        ends.append(len(frames) - 1)
 
     os.makedirs(os.path.dirname(os.path.abspath(args.out)), exist_ok=True)
     base = frames[-1].quantize(colors=96, method=Image.MEDIANCUT)
@@ -271,7 +274,7 @@ def main() -> int:
 
     poster = os.path.splitext(args.out)[0] + ".png"
     frames[-1].save(poster, optimize=True)
-    storyboard(frames, os.path.splitext(args.out)[0] + "-story.png")
+    storyboard(frames, os.path.splitext(args.out)[0] + "-story.png", ends)
 
     print(f"{args.out}  {len(frames)} 帧  {os.path.getsize(args.out)/1048576:.2f}MB  {frames[0].size}")
     print(poster)

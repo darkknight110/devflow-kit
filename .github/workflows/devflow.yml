@@ -6,16 +6,23 @@ on:
   push:
     branches: [main]
   pull_request:
+  schedule:
+    - cron: '0 3 * * *'
 
 jobs:
   # 必过：自检 + 五套端到端
   verify:
     runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        node: ['20', '22']
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node }}
+      - name: Node 版本
+        run: node --version
       - name: 环境（零依赖，无需 npm install）
         run: |
           node --version
@@ -53,7 +60,9 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: '22'
+          node-version: ${{ matrix.node }}
+      - name: Node 版本
+        run: node --version
       - name: 模板与正典一致性
         run: |
           node scripts/selfcheck.mjs 2>&1 | tail -3
